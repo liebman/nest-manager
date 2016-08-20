@@ -1,7 +1,8 @@
 /**
  *  Nest Weather
- *	Author: Anthony S. (@tonesto7)
- *  Author: Ben W. (@desertBlade)  Eric S. (@E_sch) 
+ *      Author: Anthony S. (@tonesto7)
+ *  Author: Ben W. (@desertBlade)  Eric S. (@E_sch)
+ *  Graphing Modeled on code from Andreas Amann (@ahndee)
  *
  * Copyright (C) 2016 Anthony S., Ben W.
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this
@@ -24,7 +25,7 @@ import java.text.SimpleDateFormat
 
 preferences {  }
 
-def devVer() { return "2.5.5" }
+def devVer() { return "3.0.1" }
 
 metadata {
     definition (name: "${textDevName()}", namespace: "tonesto7", author: "Anthony S.") {
@@ -34,10 +35,10 @@ metadata {
         capability "Refresh"
         capability "Relative Humidity Measurement"
         capability "Temperature Measurement"
-        
+
         command "refresh"
         command "log"
-        
+
         attribute "apiStatus", "string"
         attribute "debugOn", "string"
         attribute "devTypeVer", "string"
@@ -68,9 +69,9 @@ metadata {
     simulator { }
 
     tiles(scale: 2) {
-        htmlTile(name:"weatherHtml", action: "getWeatherHtml", width: 6, height: 10)
+        htmlTile(name:"weatherHtml", action: "getWeatherHtml", width: 6, height: 16, whiteList: ["www.gstatic.com", "raw.githubusercontent.com", "cdn.rawgit.com"])
         valueTile("temp2", "device.temperature", width: 2, height: 2, decoration: "flat") {
-            state("default", label:'${currentValue}°', 	icon:"https://raw.githubusercontent.com/tonesto7/nest-manager/master/Images/App/weather_icon.png", 
+            state("default", label:'${currentValue}°',  icon:"https://cdn.rawgit.com/tonesto7/nest-manager/master/Images/App/weather_icon.png",
                     backgroundColors: getTempColors() )
         }
         valueTile("lastUpdatedDt", "device.lastUpdatedDt", width: 4, height: 1, decoration: "flat", wordWrap: true) {
@@ -86,13 +87,17 @@ metadata {
         valueTile("devTypeVer", "device.devTypeVer",  width: 2, height: 1, decoration: "flat") {
             state("default", label: 'Device Type:\nv${currentValue}')
         }
+        //htmlTile(name:"graphHTML", action: "getGraphHTML", width: 6, height: 5, whitelist: ["www.gstatic.com", "raw.githubusercontent.com", "cdn.rawgit.com"])
+
         main ("temp2")
         details ("weatherHtml", "refresh")
+        //details ("weatherHtml", "graphHTML", "refresh")
     }
 }
 
 mappings {
     path("/getWeatherHtml") {action: [GET: "getWeatherHtml"]}
+    //path("/getGraphHTML") {action: [GET: "getGraphHTML"]}
 }
 
 def initialize() {
@@ -106,35 +111,29 @@ def parse(String description) {
 def configure() { }
 
 def getTempColors() {
-    try {
-        def colorMap
-        if (wantMetric()) {
-            colorMap = [
-                // Celsius Color Range
-                [value: 0, color: "#153591"],
-                [value: 7, color: "#1e9cbb"],
-                [value: 15, color: "#90d2a7"],
-                [value: 23, color: "#44b621"],
-                [value: 29, color: "#f1d801"],
-                [value: 33, color: "#d04e00"],
-                [value: 36, color: "#bc2323"]
-                ]
-        } else {
-            colorMap = [
-                // Fahrenheit Color Range
-                [value: 40, color: "#153591"],
-                [value: 44, color: "#1e9cbb"],
-                [value: 59, color: "#90d2a7"],
-                [value: 74, color: "#44b621"],
-                [value: 84, color: "#f1d801"],
-                [value: 92, color: "#d04e00"],
-                [value: 96, color: "#bc2323"]
-                ]
-        }
-    }
-    catch (ex) {
-        log.error "getTempColors Exception: ${ex}"
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "getTempColors")
+    def colorMap
+    if (wantMetric()) {
+        colorMap = [
+            // Celsius Color Range
+            [value: 0, color: "#153591"],
+            [value: 7, color: "#1e9cbb"],
+            [value: 15, color: "#90d2a7"],
+            [value: 23, color: "#44b621"],
+            [value: 29, color: "#f1d801"],
+            [value: 33, color: "#d04e00"],
+            [value: 36, color: "#bc2323"]
+            ]
+    } else {
+        colorMap = [
+            // Fahrenheit Color Range
+            [value: 40, color: "#153591"],
+            [value: 44, color: "#1e9cbb"],
+            [value: 59, color: "#90d2a7"],
+            [value: 74, color: "#44b621"],
+            [value: 84, color: "#f1d801"],
+            [value: 92, color: "#d04e00"],
+            [value: 96, color: "#bc2323"]
+            ]
     }
 }
 
@@ -147,13 +146,24 @@ def refresh() {
     poll()
 }
 
+// parent calls this method to queue data.
+// goal is to return to parent asap to avoid execution timeouts
+
 def generateEvent(Map eventData) {
-    //log.trace("generateEvents Parsing data ${eventData}")
+    //log.trace("generateEvent Parsing data ${eventData}")
+    state.eventData = eventData
+    runIn(3, "processEvent", [overwrite: true] )
+}
+
+def processEvent() {
+    def eventData = state?.eventData
+    state.eventData = null
+    //log.trace("processEvent Parsing data ${eventData}")
     try {
         Logger("------------START OF API RESULTS DATA------------", "warn")
         if(eventData) {
             state.tempUnit = getTemperatureScale()
-            
+
             state.useMilitaryTime = eventData?.mt ? true : false
             state.nestTimeZone = !location?.timeZone ? eventData?.tz : null
             state.weatherAlertNotify = !eventData?.weathAlertNotif ? false : true
@@ -161,20 +171,21 @@ def generateEvent(Map eventData) {
             apiStatusEvent(eventData?.apiIssues)
             deviceVerEvent(eventData?.latestVer.toString())
             state?.cssUrl = eventData?.cssUrl
-            
+
             getWeatherAstronomy(eventData?.data?.weatAstronomy?.sun_phase ? eventData?.data?.weatAstronomy : null)
             getWeatherForecast(eventData?.data?.weatForecast?.forecast ? eventData?.data?.weatForecast : null)
             getWeatherAlerts(eventData?.data?.weatAlerts ? eventData?.data?.weatAlerts : null)
             getWeatherConditions(eventData?.data?.weatCond?.current_observation ? eventData?.data?.weatCond : null)
+
+            lastUpdatedEvent()
         }
-        lastUpdatedEvent()
         //This will return all of the devices state data to the logs.
         //log.debug "Device State Data: ${getState()}"
         return null
     }
     catch (ex) {
-        log.error "generateEvent Exception: ${ex}"
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "generateEvent")
+        log.error "generateEvent Exception: ${ex}", ex
+        exceptionDataHandler(ex.message, "generateEvent")
     }
 }
 
@@ -186,7 +197,7 @@ def getDeviceStateData() {
     return getState()
 }
 
-def getTimeZone() { 
+def getTimeZone() {
     def tz = null
     if (!state?.nestTimeZone) { tz = location?.timeZone }
     else { tz = TimeZone.getTimeZone(state?.nestTimeZone) }
@@ -195,205 +206,136 @@ def getTimeZone() {
 }
 
 def isCodeUpdateAvailable(newVer, curVer) {
-    try {
-        def result = false
-        def latestVer 
-        def versions = [newVer, curVer]
-        if(newVer != curVer) {
-            latestVer = versions?.max { a, b -> 
-                def verA = a?.tokenize('.')
-                def verB = b?.tokenize('.')
-                def commonIndices = Math.min(verA?.size(), verB?.size())
-                for (int i = 0; i < commonIndices; ++i) {
-                    //log.debug "comparing $numA and $numB"
-                    if (verA[i]?.toInteger() != verB[i]?.toInteger()) {
-                        return verA[i]?.toInteger() <=> verB[i]?.toInteger()
-                    }
+    def result = false
+    def latestVer
+    def versions = [newVer, curVer]
+    if(newVer != curVer) {
+        latestVer = versions?.max { a, b ->
+            def verA = a?.tokenize('.')
+            def verB = b?.tokenize('.')
+            def commonIndices = Math.min(verA?.size(), verB?.size())
+            for (int i = 0; i < commonIndices; ++i) {
+                //log.debug "comparing $numA and $numB"
+                if (verA[i]?.toInteger() != verB[i]?.toInteger()) {
+                    return verA[i]?.toInteger() <=> verB[i]?.toInteger()
                 }
-                verA?.size() <=> verB?.size()
             }
-            result = (latestVer == newVer) ? true : false
+            verA?.size() <=> verB?.size()
         }
-        //log.debug "type: $type | newVer: $newVer | curVer: $curVer | newestVersion: ${latestVer} | result: $result"
-        return result
-    } catch (ex) {
-        LogAction("isCodeUpdateAvailable Exception: ${ex}", "error", true)
-        sendChildExceptionData("weather", devVer(), ex?.toString(), "isCodeUpdateAvailable")
+        result = (latestVer == newVer) ? true : false
     }
+    //log.debug "type: $type | newVer: $newVer | curVer: $curVer | newestVersion: ${latestVer} | result: $result"
+    return result
 }
 
 def deviceVerEvent(ver) {
-    try {
-        def curData = device.currentState("devTypeVer")?.value.toString()
-        def pubVer = ver ?: null
-        def dVer = devVer() ?: null
-        def newData = isCodeUpdateAvailable(pubVer, dVer) ? "${dVer}(New: v${pubVer})" : "${dVer}"
-        state?.devTypeVer = newData
-        state?.updateAvailable = isCodeUpdateAvailable(pubVer, dVer)
-        if(!curData?.equals(newData)) {
-            Logger("UPDATED | Device Type Version is: (${newData}) | Original State: (${curData})")
-            sendEvent(name: 'devTypeVer', value: newData, displayed: false)
-        } else { Logger("Device Type Version is: (${newData}) | Original State: (${curData})") }
-    }
-    catch (ex) {
-        log.error "deviceVerEvent Exception: ${ex}"
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "deviceVerEvent")
-    }
+    def curData = device.currentState("devTypeVer")?.value.toString()
+    def pubVer = ver ?: null
+    def dVer = devVer() ?: null
+    def newData = isCodeUpdateAvailable(pubVer, dVer) ? "${dVer}(New: v${pubVer})" : "${dVer}"
+    state?.devTypeVer = newData
+    state?.updateAvailable = isCodeUpdateAvailable(pubVer, dVer)
+    if(!curData?.equals(newData)) {
+        Logger("UPDATED | Device Type Version is: (${newData}) | Original State: (${curData})")
+        sendEvent(name: 'devTypeVer', value: newData, displayed: false)
+    } else { Logger("Device Type Version is: (${newData}) | Original State: (${curData})") }
 }
 
 def debugOnEvent(debug) {
-    try {
-        def val = device.currentState("debugOn")?.value
-        def dVal = debug ? "On" : "Off"
-        state?.debugStatus = dVal
-        state?.debug = debug.toBoolean() ? true : false
-        if(!val.equals(dVal)) {
-            log.debug("UPDATED | debugOn: (${dVal}) | Original State: (${val})")
-            sendEvent(name: 'debugOn', value: dVal, displayed: false)
-        } else { Logger("debugOn: (${dVal}) | Original State: (${val})") }
-    }
-    catch (ex) {
-        log.error "debugOnEvent Exception: ${ex}"
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "debugOnEvent")
-    }
+    def val = device.currentState("debugOn")?.value
+    def dVal = debug ? "On" : "Off"
+    state?.debugStatus = dVal
+    state?.debug = debug.toBoolean() ? true : false
+    if(!val.equals(dVal)) {
+        log.debug("UPDATED | debugOn: (${dVal}) | Original State: (${val})")
+        sendEvent(name: 'debugOn', value: dVal, displayed: false)
+    } else { Logger("debugOn: (${dVal}) | Original State: (${val})") }
 }
 
 def lastUpdatedEvent() {
-    try {
-        def now = new Date()
-        def formatVal = state.useMilitaryTime ? "MMM d, yyyy - HH:mm:ss" : "MMM d, yyyy - h:mm:ss a"
-        def tf = new SimpleDateFormat(formatVal)
-            tf.setTimeZone(getTimeZone())
-        def lastDt = "${tf?.format(now)}"
-        def lastUpd = device.currentState("lastUpdatedDt")?.value
-        state?.lastUpdatedDt = lastDt?.toString()
-        if(!lastUpd.equals(lastDt?.toString())) {
-            Logger("Last Parent Refresh time: (${lastDt}) | Previous Time: (${lastUpd})")
-            sendEvent(name: 'lastUpdatedDt', value: lastDt?.toString(), displayed: false, isStateChange: true)
-        }
-    }
-    catch (ex) {
-        log.error "lastUpdatedEvent Exception: ${ex}"
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "lastUpdatedEvent")
+    def now = new Date()
+    def formatVal = state.useMilitaryTime ? "MMM d, yyyy - HH:mm:ss" : "MMM d, yyyy - h:mm:ss a"
+    def tf = new SimpleDateFormat(formatVal)
+        tf.setTimeZone(getTimeZone())
+    def lastDt = "${tf?.format(now)}"
+    def lastUpd = device.currentState("lastUpdatedDt")?.value
+    state?.lastUpdatedDt = lastDt?.toString()
+    if(!lastUpd.equals(lastDt?.toString())) {
+        Logger("Last Parent Refresh time: (${lastDt}) | Previous Time: (${lastUpd})")
+        sendEvent(name: 'lastUpdatedDt', value: lastDt?.toString(), displayed: false, isStateChange: true)
     }
 }
 
 def apiStatusEvent(issue) {
-    try {
-        def curStat = device.currentState("apiStatus")?.value
-        def newStat = issue ? "issue" : "ok"
-        state?.apiStatus = newStat
-        if(!curStat.equals(newStat)) { 
-            log.debug("UPDATED | API Status is: (${newStat}) | Original State: (${curStat})")
-            sendEvent(name: "apiStatus", value: newStat, descriptionText: "API Status is: ${newStat}", displayed: true, isStateChange: true, state: newStat)
-        } else { Logger("API Status is: (${newStat}) | Original State: (${curStat})") }
-    }
-    catch (ex) {
-        log.error "apiStatusEvent Exception: ${ex}"
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "apiStatusEvent")
-    }
+    def curStat = device.currentState("apiStatus")?.value
+    def newStat = issue ? "issue" : "ok"
+    state?.apiStatus = newStat
+    if(!curStat.equals(newStat)) {
+        log.debug("UPDATED | API Status is: (${newStat}) | Original State: (${curStat})")
+        sendEvent(name: "apiStatus", value: newStat, descriptionText: "API Status is: ${newStat}", displayed: true, isStateChange: true, state: newStat)
+    } else { Logger("API Status is: (${newStat}) | Original State: (${curStat})") }
 }
 
 def humidityEvent(humidity) {
-    try {
-        def hum = device.currentState("humidity")?.value
-        if(!hum.equals(humidity)) {
-            log.debug("UPDATED | Humidity is (${humidity}) | Original State: (${hum})")
-            sendEvent(name:'humidity', value: humidity, unit: "%", descriptionText: "Humidity is ${humidity}" , displayed: false, isStateChange: true)
-        } else { Logger("Humidity is (${humidity}) | Original State: (${hum})") }
-    }
-    catch (ex) {
-        log.error "humidityEvent Exception: ${ex}"
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "humidityEvent")
-    }
+    def hum = device.currentState("humidity")?.value
+    if(!hum.equals(humidity)) {
+        log.debug("UPDATED | Humidity is (${humidity}) | Original State: (${hum})")
+        sendEvent(name:'humidity', value: humidity, unit: "%", descriptionText: "Humidity is ${humidity}" , displayed: false, isStateChange: true)
+    } else { Logger("Humidity is (${humidity}) | Original State: (${hum})") }
 }
 
 def illuminanceEvent(illum) {
-    try {
-        def cur = device.currentState("illuminance")?.value.toString()
-        if(!cur.equals(illum.toString())) {
-            log.debug("UPDATED | Illuminance is (${illum}) | Original State: (${cur})")
-            sendEvent(name:'illuminance', value: illum, unit: "lux", descriptionText: "Illuminance is ${illum}" , displayed: false, isStateChange: true)
-        } else { Logger("Illuminance is (${illum}) | Original State: (${cur})") }
-    }
-    catch (ex) {
-        log.error "illuminanceEvent Exception: ${ex}"
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "illuminanceEvent")
-    }
+    def cur = device.currentState("illuminance")?.value.toString()
+    if(!cur.equals(illum.toString())) {
+        log.debug("UPDATED | Illuminance is (${illum}) | Original State: (${cur})")
+        sendEvent(name:'illuminance', value: illum, unit: "lux", descriptionText: "Illuminance is ${illum}" , displayed: false, isStateChange: true)
+    } else { Logger("Illuminance is (${illum}) | Original State: (${cur})") }
 }
 
 def dewpointEvent(Double tempVal) {
-    try {
-        def temp = device.currentState("dewpoint")?.value.toString()
-        def rTempVal = wantMetric() ? tempVal.round(1) : tempVal.round(0).toInteger()
-        if(!temp.equals(rTempVal.toString())) {
-            log.debug("UPDATED | DewPoint Temperature is (${rTempVal}) | Original Temp: (${temp})")
-            sendEvent(name:'dewpoint', value: rTempVal, unit: state?.tempUnit, descriptionText: "Dew point Temperature is ${rTempVal}" , displayed: true, isStateChange: true)
-        } else { Logger("DewPoint Temperature is (${rTempVal}) | Original Temp: (${temp})") }
-    }
-    catch (ex) {
-        log.error "dewpointEvent Exception: ${ex}"
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "dewpointEvent")
-    }
+    def temp = device.currentState("dewpoint")?.value.toString()
+    def rTempVal = wantMetric() ? tempVal.round(1) : tempVal.round(0).toInteger()
+    if(!temp.equals(rTempVal.toString())) {
+        log.debug("UPDATED | DewPoint Temperature is (${rTempVal}) | Original Temp: (${temp})")
+        sendEvent(name:'dewpoint', value: rTempVal, unit: state?.tempUnit, descriptionText: "Dew point Temperature is ${rTempVal}" , displayed: true, isStateChange: true)
+    } else { Logger("DewPoint Temperature is (${rTempVal}) | Original Temp: (${temp})") }
 }
 
 def temperatureEvent(Double tempVal, Double feelsVal) {
-    try {
-        def temp = device.currentState("temperature")?.value.toString()
-        def rTempVal = wantMetric() ? tempVal.round(1) : tempVal.round(0).toInteger()
-        def rFeelsVal = wantMetric() ? feelsVal.round(1) : feelsVal.round(0).toInteger()
-        if(!temp.equals(rTempVal.toString())) {
-            log.debug("UPDATED | Temperature is (${rTempVal}) | Original Temp: (${temp})")
-            sendEvent(name:'temperature', value: rTempVal, unit: state?.tempUnit, descriptionText: "Ambient Temperature is ${rTempVal}" , displayed: true, isStateChange: true)
-            sendEvent(name:'feelsLike', value: rFeelsVal, unit: state?.tempUnit, descriptionText: "Feels Like Temperature is ${rFeelsVal}" , displayed: false)
-        } else { Logger("Temperature is (${rTempVal}) | Original Temp: (${temp})") }
-    }
-    catch (ex) {
-        log.error "temperatureEvent Exception: ${ex}"
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "temperatureEvent")
-    }
+    def temp = device.currentState("temperature")?.value.toString()
+    def rTempVal = wantMetric() ? tempVal.round(1) : tempVal.round(0).toInteger()
+    def rFeelsVal = wantMetric() ? feelsVal.round(1) : feelsVal.round(0).toInteger()
+    if(!temp.equals(rTempVal.toString())) {
+        log.debug("UPDATED | Temperature is (${rTempVal}) | Original Temp: (${temp})")
+        sendEvent(name:'temperature', value: rTempVal, unit: state?.tempUnit, descriptionText: "Ambient Temperature is ${rTempVal}" , displayed: true, isStateChange: true)
+        sendEvent(name:'feelsLike', value: rFeelsVal, unit: state?.tempUnit, descriptionText: "Feels Like Temperature is ${rFeelsVal}" , displayed: false)
+    } else { Logger("Temperature is (${rTempVal}) | Original Temp: (${temp})") }
 }
 
-def getTemp() { 
-    try { 
-     if ( wantMetric() ) {
-         return "${state?.curWeatherTemp_c}°C"
-     } else {
-         return	"${state?.curWeatherTemp_f}°F"
-    }       
-    } catch (ex) { 
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "getTemp")
-        return 0 
+def getTemp() {
+    if ( wantMetric() ) {
+        return "${state?.curWeatherTemp_c}°C"
+    } else {
+        return "${state?.curWeatherTemp_f}°F"
     }
+    return 0
 }
 
-def getDewpoint() { 
-    try { 
-     if ( wantMetric() ) {
-         return "${state?.curWeatherDewPoint_c}°C"
-     } else {
-         return	"${state?.curWeatherDewPoint_f}°F"
-    }       
-    } catch (ex) { 
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "getDewpoint")
-        return 0 
+def getDewpoint() {
+    if ( wantMetric() ) {
+        return "${state?.curWeatherDewPoint_c}°C"
+    } else {
+        return "${state?.curWeatherDewPoint_f}°F"
     }
+    return 0
 }
 
-def getCurWeather() { 
-    try { return state.curWeather } 
-    catch (ex) { 
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "getCurWeather")
-        return 0 
-    }
+def getCurWeather() {
+    return state.curWeather ?: 0
 }
 
-def getHumidity() { 
-    try { return device.currentValue("humidity") } 
-    catch (ex) { 
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "getHumidity")
-        return 0 
-    }
+def getHumidity() {
+    return device.currentValue("humidity") ?: 0
 }
 
 def wantMetric() { return (state?.tempUnit == "C") }
@@ -410,7 +352,7 @@ def getWeatherConditions(Map weatData) {
             def cur = weatData
             if(cur) {
                 state.curWeather = cur
-                
+
                 state.curWeatherTemp_f = Math.round(cur?.current_observation?.temp_f).toInteger()
                 state.curWeatherTemp_c = Math.round(cur?.current_observation?.temp_c.toDouble())
                 state.curFeelsTemp_f = Math.round(cur?.current_observation?.feelslike_f as Double)
@@ -427,8 +369,12 @@ def getWeatherConditions(Map weatData) {
                 def hum = cur?.current_observation?.relative_humidity?.toString().replaceAll("\\%", "") as Double
                 def Tc = Math.round(cur?.current_observation?.feelslike_c as Double) as Double
                 state.curWeatherDewPoint_c = estimateDewPoint(hum,Tc)
+                if (state.curWeatherTemp_c < state.curWeatherDewPoint_c) { state.curWeatherDewPoint_c = state.curWeatherTemp_c }
                 state.curWeatherDewPoint_f =  Math.round(state.curWeatherDewPoint_c * 9.0/5.0 + 32.0)
                 dewpointEvent((wantMetric() ? state?.curWeatherDewPoint_c : state?.curWeatherDewPoint_f))
+
+                getSomeData(true)
+
                 sendEvent(name: "weather", value: cur?.current_observation?.weather)
                 sendEvent(name: "weatherIcon", value: state?.curWeatherIcon, displayed:false)
                 def wspeed = 0.0
@@ -463,7 +409,7 @@ def getWeatherConditions(Map weatData) {
         }
     }
     catch (ex) {
-        log.error "getWeatherConditions Exception: ${ex}"
+        log.error "getWeatherConditions Exception: ${ex}", ex
         parent?.sendChildExceptionData("weather", devVer(), ex, "getWeatherConditions")
     }
 }
@@ -489,7 +435,7 @@ def getWeatherForecast(Map weatData) {
         }
     }
     catch (ex) {
-        log.error "getWeatherForecast Exception: ${ex}"
+        log.error "getWeatherForecast Exception: ${ex}", ex
         parent?.sendChildExceptionData("weather", devVer(), ex, "getWeatherForecast")
     }
 }
@@ -511,7 +457,7 @@ def getWeatherAstronomy(weatData) {
         }
     }
     catch (ex) {
-        log.error "getWeatherAstronomy Exception: ${ex}"
+        log.error "getWeatherAstronomy Exception: ${ex}", ex
         parent?.sendChildExceptionData("weather", devVer(), ex, "getWeatherAstronomy")
     }
 }
@@ -579,7 +525,7 @@ def getWeatherAlerts(weatData) {
         }
     }
     catch (ex) {
-        log.error "getWeatherAlerts Exception: ${ex}"
+        log.error "getWeatherAlerts Exception: ${ex}", ex
         parent?.sendChildExceptionData("weather", devVer(), ex, "getWeatherAlerts")
     }
 }
@@ -599,8 +545,8 @@ private pad(String s, size = 25) {
         }
     }
     catch (ex) {
-        log.error "pad Exception: ${ex}"
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "pad")
+        log.error "pad Exception: ${ex}", ex
+        exceptionDataHandler(ex.message, "pad")
     }
 }
 
@@ -612,29 +558,37 @@ private estimateDewPoint(double rh,double t) {
     def B = (L + (M/N)) / 17.27
     def dp = (237.3 * B) / (1 - B)
 
-    def t1 = t * 9.0/5.0 + 32
-    def dp1 = 243.04 * ( Math.log(rh / 100) + ( (17.625 * t1) / (243.04 + t1) ) ) / (17.625 - Math.log(rh / 100) - ( (17.625 * t1) / (243.04 + t1) ) ) 
-    dp1 = (dp1 - 32) * 5.0/9.0
+    def dp1 = 243.04 * ( Math.log(rh / 100) + ( (17.625 * t) / (243.04 + t) ) ) / (17.625 - Math.log(rh / 100) - ( (17.625 * t) / (243.04 + t) ) )
     def ave = (dp + dp1)/2
-    //log.debug "dp: ${dp.round(1)}  dp1: ${dp1.round(1)} ave: ${ave.round(1)}" 
+    //log.debug "dp: ${dp.round(1)}  dp1: ${dp1.round(1)} ave: ${ave.round(1)}"
+    ave = dp1
     return ave.round(1)
 }
 
+def luxUpdate() {
+    log.trace "luxUpdate"
+    poll()
+}
 
 private estimateLux(weatherIcon) {
     //log.trace "estimateLux ( ${weatherIcon} )"
     try {
-        if(!state?.sunriseDate?.time || !state?.sunsetDate?.time) { 
+        //log.debug "state.sunriseDate: ${state.sunriseDate} state.sunriseDate.time: ${state.sunriseDate.time}"
+        //log.debug "state.sunsetDate: ${state.sunsetDate} state.sunsetDate.time: ${state.sunsetDate.time}"
+
+        if(!state?.sunriseDate?.time || !state?.sunsetDate?.time) {
             log.warn "estimateLux: Weather Data missing..."
             return
         } else {
             def lux = 0
             def twilight = 20 * 60 * 1000 // 20 minutes
             def now = new Date().time
-            def sunriseDate = state?.sunriseDate.time
-            def sunsetDate = state?.sunsetDate.time
+            def sunriseDate = (long) state?.sunriseDate.time
+            def sunsetDate = (long) state?.sunsetDate.time
             sunriseDate -= twilight
             sunsetDate += twilight
+            def oneHour = 1000 * 60 * 60
+            def fiveMin = 1000 * 60 * 5
             if (now > sunriseDate && now < sunsetDate) {
                 //day
                 switch(weatherIcon) {
@@ -655,21 +609,36 @@ private estimateLux(weatherIcon) {
                     default:
                         //sunny, clear
                         lux = 10000
-            }
+                }
 
-            //adjust for dusk/dawn
-            def afterSunrise = now - sunriseDate
-            def beforeSunset = sunsetDate - now
-            def oneHour = 1000 * 60 * 60
+                //adjust for dusk/dawn
+                def afterSunrise = now - sunriseDate
+                def beforeSunset = sunsetDate - now
 
-            if(afterSunrise < oneHour) {
-                //dawn
-                lux = (long)(lux * (afterSunrise/oneHour))
-            } else if (beforeSunset < oneHour) {
-                //dusk
-                lux = (long)(lux * (beforeSunset/oneHour))
-            }
+                //log.debug "now: $now afterSunrise: $afterSunrise beforeSunset: $beforeSunset oneHour: $oneHour"
+                if(afterSunrise < oneHour) {
+                    //dawn
+                    lux = (long)(lux * (afterSunrise/oneHour))
+                    runIn(5*60, "luxUpdate", [overwrite: true])
+                } else if (beforeSunset < oneHour) {
+                    //dusk
+                    //log.trace "dusk"
+                    lux = (long)(lux * (beforeSunset/oneHour))
+                    runIn(5*60, "luxUpdate", [overwrite: true])
+                } else if (beforeSunset < (oneHour*2)) {
+                    //log.trace "before dusk"
+                    def newTim =  (beforeSunset - oneHour)/1000 // seconds
+                    if(newTim > 0 && newTim < 3600) {
+                        runIn(newTim, "luxUpdate", [overwrite: true])
+                    }
+                }
             } else {
+                if( (now > (sunriseDate-oneHour)) && now < sunsetDate) {
+                    def newTim =  (sunriseDate - now)/1000 // seconds
+                    if(newTim > 0 && newTim < 3600) {
+                        runIn(newTim, "luxUpdate", [overwrite: true])
+                    }
+                }
                 //night - always set to 10 for now
                 //could do calculations for dusk/dawn too
                 lux = 10
@@ -678,7 +647,7 @@ private estimateLux(weatherIcon) {
         }
     }
     catch (ex) {
-        log.error "estimateLux Exception: ${ex}"
+        log.error "estimateLux Exception: ${ex}", ex
         parent?.sendChildExceptionData("weather", devVer(), ex, "estimateLux")
     }
 }
@@ -705,12 +674,22 @@ def formatDt(dt) {
     }
     return tf.format(dt)
 }
+
+def convertRfc822toDt(dt) {
+    if(dt) {
+        def tf = new SimpleDateFormat("MM/dd/yyyy hh:mm:ss a")
+        if(getTimeZone()) { tf.setTimeZone(getTimeZone()) }
+        def result = tf.format(Date.parse("EEE, dd MMM yyyy HH:mm:ss Z", dt))
+        return result
+    }
+    return null
+}
 /************************************************************************************************
 |										LOGGING FUNCTIONS										|
 *************************************************************************************************/
 // Local Device Logging
 def Logger(msg, logType = "debug") {
-     if(state?.debug) { 
+     if(state?.debug) {
         switch (logType) {
             case "trace":
                 log.trace "${msg}"
@@ -730,7 +709,7 @@ def Logger(msg, logType = "debug") {
         }
     }
 }
- 
+
  //This will Print logs from the parent app when added to parent method that the child calls
 def log(message, level = "trace") {
     switch (level) {
@@ -749,13 +728,20 @@ def log(message, level = "trace") {
         default:
             log.error "PARENT_Log>> " + message
             break
-    }            
+    }
     return null // always child interface call with a return value
+}
+
+def exceptionDataHandler(msg, methodName) {
+    if(msg && methodName) {
+        def msgString = "${msg}"
+        parent?.sendChildExceptionData("weather", devVer(), msgString, methodName)
+    }
 }
 
 def getImgBase64(url, type) {
     try {
-        def params = [ 
+        def params = [
             uri: url,
             contentType: 'image/$type'
         ]
@@ -776,29 +762,63 @@ def getImgBase64(url, type) {
         }
     }
     catch (ex) {
-        log.error "getImageBase64 Exception: ${ex}"
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "getImgBase64")
+        log.error "getImageBase64 Exception: ${ex}", ex
+        exceptionDataHandler(ex.message, "getImgBase64")
     }
 }
 
-def getCSS(){
+def getFileBase64(url,preType,fileType) {
     try {
-        def params = [ 
-            uri: state?.cssUrl.toString(),
+        def params = [
+            uri: url,
+            contentType: '$preType/$fileType'
+        ]
+        httpGet(params) { resp ->
+            if(resp.data) {
+                def respData = resp?.data
+                ByteArrayOutputStream bos = new ByteArrayOutputStream()
+                int len
+                int size = 4096
+                byte[] buf = new byte[size]
+                while ((len = respData.read(buf, 0, size)) != -1)
+                    bos.write(buf, 0, len)
+                buf = bos.toByteArray()
+                //log.debug "buf: $buf"
+                String s = buf?.encodeBase64()
+                //log.debug "resp: ${s}"
+                return s ? "data:${preType}/${fileType};base64,${s.toString()}" : null
+            }
+        }
+    }
+    catch (ex) {
+        log.error "getFileBase64 Exception: ${ex}", ex
+        exceptionDataHandler(ex.message, "getFileBase64")
+    }
+}
+
+def getCSS(url = null){
+    try {
+        def params = [
+            uri: !url ? "https://raw.githubusercontent.com/desertblade/ST-HTMLTile-Framework/master/css/smartthings.css" : url?.toString(),
             contentType: 'text/css'
         ]
-        try {
-            httpGet(params)  { resp ->
+        httpGet(params)  { resp ->
             return resp?.data.text
         }
     }
     catch (ex) {
-        log.error "getCss Exception: ${ex}"
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "getCSS")
+        log.error "getCss Exception: ${ex}", ex
+        exceptionDataHandler(ex.message, "getCSS")
     }
 }
- catch (ex) {
-        log.error "Failed to load CSS - Exception: $ex"
+
+def getJS(url){
+    def params = [
+        uri: url?.toString(),
+        contentType: "text/plain"
+    ]
+    httpGet(params)  { resp ->
+        return resp?.data.text
     }
 }
 
@@ -807,8 +827,8 @@ def getWeatherIcon(weatherIcon) {
         return getImgBase64(state?.curWeather?.current_observation?.icon_url, gif)
     }
     catch (ex) {
-        log.error "getWeatherIcon Exception: ${ex}"
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "getWeatherIcon")
+        log.error "getWeatherIcon Exception: ${ex}", ex
+        exceptionDataHandler(ex.message, "getWeatherIcon")
     }
 }
 
@@ -841,7 +861,7 @@ private localDate(timeZone) {
     }
     catch (ex) {
         log.error "localDate Exception: ${ex}"
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "localDate")
+        exceptionDataHandler(ex.message, "localDate")
     }
 }
 
@@ -852,7 +872,7 @@ def getSunriseSunset() {
         def today = localDate("GMT${state.curWeather?.current_observation?.local_tz_offset}")
 
         def ltf = new SimpleDateFormat("yyyy-MM-dd HH:mm")
-                
+
         ltf.setTimeZone(TimeZone.getTimeZone("GMT${state.curWeather?.current_observation?.local_tz_offset}"))
 
         def utf = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
@@ -870,8 +890,8 @@ def getSunriseSunset() {
         state.localSunrise = localSunrise
         state.localSunset = localSunset
     } catch (ex) {
-        log.error "getSunriseSunset Exception: ${ex}"
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "getSunriseSunset")
+        log.error "getSunriseSunset Exception: ${ex}", ex
+        exceptionDataHandler(ex.message, "getSunriseSunset")
     }
 }
 
@@ -880,11 +900,11 @@ def forecastDay(day) {
     def dayName = "<b>${state.curForecast.forecast.txt_forecast.forecastday[day].title} </b><br>"
     def forecastImageLink = "<a href=\"#${day}\"><img src=\"${getImgBase64(state.curForecast.forecast.txt_forecast.forecastday[day].icon_url, gif)}\"></a><br>"
     def forecastTxt = ""
-    
+
     def modalHead = "<div id=\"${day}\" class=\"bottomModal\"><div><a href=\"#close\" title=\"Close\" class=\"close\">X</a>"
     def modalTitle = " <h2>${state.curForecast.forecast.txt_forecast.forecastday[day].title}</h2>"
     def forecastImage = "<img src=\"${getImgBase64(state.curForecast.forecast.txt_forecast.forecastday[day].icon_url, gif)}\">"
-    
+
     if ( wantMetric() ) {
         forecastTxt = "<p>${state.curForecast.forecast.txt_forecast.forecastday[day].fcttext_metric}</p>"
     } else {
@@ -894,86 +914,501 @@ def forecastDay(day) {
     return  dayName + forecastImageLink + modalHead + modalTitle + forecastImage + forecastTxt + modalClose
 }
 
+String getDataString(Integer seriesIndex) {
+    def dataString = ""
+    def dataTable = []
+    switch (seriesIndex) {
+        case 1:
+                dataTable = state?.temperatureTableYesterday
+                break
+        case 2:
+                dataTable = state?.dewpointTableYesterday
+                break
+        case 3:
+                dataTable = state?.temperatureTable
+                break
+        case 4:
+                dataTable = state?.dewpointTable
+                break
+    }
+    dataTable.each() {
+        def dataArray = [[it[0],it[1],0],null,null,null,null]
+        dataArray[seriesIndex] = it[2]
+        dataString += dataArray?.toString() + ","
+    }
+    return dataString
+}
+
+def getSomeOldData(devpoll = false) {
+    def dewpointTable = state?.dewpointTable
+    def temperatureTable = state?.temperatureTable
+
+    if (devpoll) {
+        runIn( 66, "getSomeOldData", [overwrite: true])
+        return
+    }
+
+    def startOfToday = timeToday("00:00", location.timeZone)
+    def newValues
+    def dataTable = []
+
+    if (state.dewpointTableYesterday == null) {
+        log.trace "Querying DB for yesterday's data…"
+        def dewpointData = device.statesBetween("dewpoint", startOfToday - 1, startOfToday, [max: 100]) // 24h in 15min intervals should be more than sufficient…
+        log.debug "got ${dewpointData.size()}"
+
+        // work around a bug where the platform would return less than the requested number of events (as June 2016, only 50 events are returned)
+        while ((newValues = device.statesBetween("dewpoint", startOfToday - 1, dewpointData.last().date, [max: 100])).size()) {
+            log.debug "got ${newValues.size()}"
+            dewpointData += newValues
+        }
+
+        dataTable = []
+        dewpointData.reverse().each() {
+            dataTable.add([it.date.format("H", location.timeZone),it.date.format("m", location.timeZone),it.floatValue])
+        }
+        runIn( 80, "getSomeOldData", [overwrite: true])
+        state.dewpointTableYesterday = dataTable
+        log.debug "finished"
+        return
+    }
+
+    if (state.temperatureTableYesterday == null) {
+        log.trace "2"
+        def temperatureData = device.statesBetween("temperature", startOfToday - 1, startOfToday, [max: 100])
+        log.debug "got ${temperatureData.size()}"
+        while ((newValues = device.statesBetween("temperature", startOfToday - 1, temperatureData.last().date, [max: 100])).size()) {
+            log.debug "got ${newValues.size()}"
+            temperatureData += newValues
+        }
+
+        dataTable = []
+        temperatureData.reverse().each() {
+            dataTable.add([it.date.format("H", location.timeZone),it.date.format("m", location.timeZone),it.floatValue])
+        }
+        runIn( 80, "getSomeOldData", [overwrite: true])
+        state.temperatureTableYesterday = dataTable
+        log.debug "finished"
+        return
+    }
+
+/*
+    if (dewpointTable == null) {
+        dewpointTable = []
+        temperatureTable = []
+    }
+*/
+    if (dewpointTable == null) {
+        log.trace "Querying DB for today's data…"
+        def dewpointData = device.statesSince("dewpoint", startOfToday, [max: 100])
+        log.debug "got ${dewpointData.size()}"
+        while ((newValues = device.statesBetween("dewpoint", startOfToday, dewpointData.last().date, [max: 100])).size()) {
+            log.debug "got ${newValues.size()}"
+            dewpointData += newValues
+        }
+        dewpointTable = []
+        dewpointData.reverse().each() {
+            dewpointTable?.add([it.date.format("H", location.timeZone),it.date.format("m", location.timeZone),it.floatValue])
+        }
+        runIn( 33, "getSomeOldData", [overwrite: true])
+        state.dewpointTable = dewpointTable
+        log.debug "finished"
+        return
+    }
+
+    if (temperatureTable == null) {
+        log.trace "4"
+        def temperatureData = device.statesSince("temperature", startOfToday, [max: 100])
+        log.debug "got ${temperatureData.size()}"
+        while ((newValues = device.statesBetween("temperature", startOfToday, temperatureData.last().date, [max: 100])).size()) {
+            temperatureData += newValues
+            log.debug "got ${newValues.size()}"
+        }
+        temperatureTable = []
+        //temperatureData.reverse().drop(1).each() {
+        temperatureData.reverse().each() {
+            temperatureTable.add([it.date.format("H", location.timeZone),it.date.format("m", location.timeZone),it.floatValue])
+        }
+        runIn( 30, "getSomeOldData", [overwrite: true])
+        state.temperatureTable = temperatureTable
+        log.debug "finished"
+        return
+    }
+}
+
+def getSomeData(devpoll = false) {
+    //log.trace "getSomeData ${state.curWeatherLoc}"
+// hackery to test getting old data
+    def dewpointTable
+    def temperatureTable
+
+    def tryNum = 1
+    if (state.eric != tryNum ) {
+        dewpointTable = null
+        temperatureTable = null
+        state.dewpointTableYesterday = null
+        state.temperatureTableYesterday = null
+        state.dewpointTable = null
+        state.temperatureTable = null
+        state.remove("dewpointTableYesterday")
+        state.remove("temperatureTableYesterday")
+        state.remove("dewpointTable")
+        state.remove("temperatureTable")
+        state.remove("today")
+
+        state.eric = tryNum
+        runIn( 33, "getSomeData", [overwrite: true])
+        return
+    }
+
+    def todayDay = new Date().format("dd",location.timeZone)
+    dewpointTable = state?.dewpointTable
+    temperatureTable = state?.temperatureTable
+
+    def currentTemperature = wantMetric() ? state?.curWeatherTemp_c : state?.curWeatherTemp_f
+    def currentDewpoint = wantMetric() ? state?.curWeatherDewPoint_c : state?.curWeatherDewPoint_f
+
+    if (!state.today || state.today != todayDay) {
+
+        //debugging
+        if (dewpointTable == null) {
+            dewpointTable = []
+            temperatureTable = []
+        }
+        state.today = todayDay
+        state.dewpointTableYesterday = dewpointTable
+        state.temperatureTableYesterday = temperatureTable
+
+// these are commented out as the platform continuously times out
+        //dewpointTable = dewpointTable ? [] : null
+        //temperatureTable = temperatureTable ? [] : null
+
+// these are in due to platform timeouts
+        dewpointTable = []
+        temperatureTable = []
+
+// these are commented out as the platform continuously times out
+        //getSomeOldData(devpoll)
+        //dewpointTable = state?.dewpointTable
+        //temperatureTable = state?.temperatureTable
+
+
+        dewpointTable.add([0,0,currentDewpoint])
+        temperatureTable.add([0,0,currentTemperature])
+        state.dewpointTable = dewpointTable
+        state.temperatureTable = temperatureTable
+        return
+    }
+
+    // add latest dewpoint & temperature readings for the graph
+    def newDate = new Date()
+    dewpointTable.add([newDate.format("H", location.timeZone),newDate.format("m", location.timeZone),currentDewpoint])
+    temperatureTable.add([newDate.format("H", location.timeZone),newDate.format("m", location.timeZone),currentTemperature])
+    state.dewpointTable = dewpointTable
+    state.temperatureTable = temperatureTable
+}
+
+def getStartTime() {
+    def startTime = 24
+    if (state?.dewpointTable?.size()) {
+        startTime = state.dewpointTable.min{it[0].toInteger()}[0].toInteger()
+    }
+    if (state?.dewpointTableYesterday?.size()) {
+        startTime = Math.min(startTime, state.dewpointTableYesterday.min{it[0].toInteger()}[0].toInteger())
+    }
+    return startTime
+}
+
+def getMinTemp() {
+    def ytmin
+    def tmin
+    def dtmin
+    def dmin
+    def dataTable = []
+    if (state?.temperatureTableYesterday?.size()) {
+        dataTable = []
+        def temperatureData = state?.temperatureTableYesterday
+        temperatureData.each() {
+            dataTable.add(it[2])
+        }
+        ytmin = dataTable.min().toInteger()
+    }
+    if (state?.temperatureTable?.size()) {
+        dataTable = []
+        def temperatureData = state?.temperatureTable
+        temperatureData?.each() {
+            dataTable?.add(it[2])
+        }
+        tmin = dataTable?.min()?.toInteger()
+    }
+    if (state?.dewpointTableYesterday?.size()) {
+        dataTable = []
+        def temperatureData = state?.dewpointTableYesterday
+        temperatureData?.each() {
+            dataTable?.add(it[2])
+        }
+        dtmin = dataTable?.min()?.toInteger()
+    }
+    if (state?.dewpointTable?.size()) {
+        dataTable = []
+        def temperatureData = state?.dewpointTable
+        temperatureData?.each() {
+            dataTable?.add(it[2])
+        }
+        dmin = dataTable?.min()?.toInteger()
+    }
+    def result = [ytmin, tmin, dtmin, dmin]
+    //log.trace "getMinTemp: ${result.min()} result: ${result}"
+    return result?.min()
+}
+
+def getMaxTemp() {
+    def ytmax
+    def tmax
+    def dtmax
+    def dmax
+    def dataTable = []
+    if (state?.temperatureTableYesterday?.size()) {
+        dataTable = []
+        def temperatureData = state?.temperatureTableYesterday
+        temperatureData?.each() {
+            dataTable?.add(it[2])
+        }
+        ytmax = dataTable?.max()?.toInteger()
+    }
+    if (state?.temperatureTable?.size()) {
+        dataTable = []
+        def temperatureData = state?.temperatureTable
+        temperatureData?.each() {
+            dataTable?.add(it[2])
+        }
+        tmax = dataTable?.max()?.toInteger()
+    }
+    if (state?.dewpointTableYesterday?.size()) {
+        dataTable = []
+        def temperatureData = state?.dewpointTableYesterday
+        temperatureData?.each() {
+            dataTable?.add(it[2])
+        }
+        dtmax = dataTable?.max()?.toInteger()
+    }
+    if (state?.dewpointTable?.size()) {
+        dataTable = []
+        def temperatureData = state?.dewpointTable
+        temperatureData?.each() {
+            dataTable?.add(it[2])
+        }
+        dmax = dataTable?.max()?.toInteger()
+    }
+    def result = [ytmax, tmax, dtmax, dmax]
+    //log.trace "getMaxTemp: ${result.max()} result: ${result}"
+    return result?.max()
+}
+
 def getWeatherHtml() {
     try {
         def updateAvail = !state.updateAvailable ? "" : "<h3>Device Update Available!</h3>"
+
+        def obsrvTime = "Last Updated:\n${convertRfc822toDt(state?.curWeather?.current_observation?.observation_time_rfc822)}"
+
+        def tempStr = "°F"
+        if ( wantMetric() ) {
+            tempStr = "°C"
+        }
+
+        def chartJsUrl = "https://www.gstatic.com/charts/loader.js"
+        def chartJs = getFileBase64(chartJsUrl, "application", "javascript")
+        def cssData = getFileBase64(state?.cssUrl, "text", "css")
+
+        def minval = getMinTemp()
+        def minstr = "minValue: ${minval},"
+
+        def maxval = getMaxTemp()
+        def maxstr = "maxValue: ${maxval},"
+
+        def differ = maxval - minval
+        //log.trace "differ ${differ}"
+        if (differ > (maxval/4) || differ < (wantMetric() ? 10:20) ) {
+            minstr = "minValue: ${(minval - (wantMetric() ? 10:10))},"
+            if (differ < (wantMetric() ? 10:20) ) {
+                maxstr = "maxValue: ${(maxval + (wantMetric() ? 10:10))},"
+            }
+        }
+
+        def chartHtml = ((state.temperatureTable && state.dewpointTable && state.temperatureTableYesterday && state.dewpointTableYesterday) ||
+                (state.temperatureTable != [] && state.dewpointTable != [] && state.temperatureTableYesterday != [] && state.dewpointTableYesterday != [])) ? showChartHtml() : hideChartHtml()
+
         def html = """
         <!DOCTYPE html>
         <html>
             <head>
+                <meta charset="utf-8"/>
                 <meta http-equiv="cache-control" content="max-age=0"/>
                 <meta http-equiv="cache-control" content="no-cache"/>
                 <meta http-equiv="expires" content="0"/>
                 <meta http-equiv="expires" content="Tue, 01 Jan 1980 1:00:00 GMT"/>
                 <meta http-equiv="pragma" content="no-cache"/>
-                <meta name="viewport" content="width = device-width, initial-scale=1.0">
+                <meta name="viewport" content="width = device-width, user-scalable=no, initial-scale=1.0">
+                <link rel="stylesheet" href="${cssData}"></link>
+                <script type="text/javascript" src="${chartJs}"></script>
             </head>
             <body>
-            <style type="text/css">
-            ${getCSS()}
-            </style>
-                ${updateAvail}
-                <div class="container">
-                <h4>Current Weather Conditions</h4>
-                <h3><a href="#openModal">${state?.walert}</a></h3>
-                <h1 class="bottomBorder"> ${state?.curWeather?.current_observation?.display_location.full} </h1>
-                    <div class="row">
-                            <div class="six columns">
-                            <b>Feels Like:</b> ${getFeelslike()} <br>
-                            <b>Precip: </b> ${device.currentState("percentPrecip")?.value}% <br>
-                            <b>Humidity:</b> ${state?.curWeather?.current_observation?.relative_humidity}<br>
-                            <b>Dew Point: </b>${getDewpoint()}<br>
-                            <b>UV Index: </b>${state.curWeather?.current_observation?.UV}<br>
-                            <b>Visibility:</b> ${getVisibility()} <br>
-                            <b>Lux:</b> ${getLux()}<br>
-                            <b>Sunrise:</b> ${state?.localSunrise} <br> <b>Sunset: </b> ${state?.localSunset} <br>
-                            <b>Wind:</b> ${state?.windStr} <br>
-                        </div>
-                        <div class="six columns">
-                            <img class="offset-by-two eight columns" src="${getWeatherIcon()}"> <br>
-                            <h2>${getTemp()}</h2>
-                            <h1 class ="offset-by-two topBorder">${state.curWeatherCond}</h1>
-                        </div>
-                    </div>  
-                    <div class="row topBorder">
-                    <div class="centerText four columns">${forecastDay(0)}</div>
-                    <div class="centerText four columns">${forecastDay(1)}</div>
-                    <div class="centerText four columns">${forecastDay(2)}</div>
+                  ${updateAvail}
+                  <div class="container">
+                  <h4>Current Weather Conditions</h4>
+                  <h3><a href="#openModal">${state?.walert}</a></h3>
+                  <h1 class="bottomBorder"> ${state?.curWeather?.current_observation?.display_location.full} </h1>
+                      <div class="row">
+                          <div class="six columns">
+                              <b>Feels Like:</b> ${getFeelslike()} <br>
+                              <b>Precip: </b> ${device.currentState("percentPrecip")?.value}% <br>
+                              <b>Humidity:</b> ${state?.curWeather?.current_observation?.relative_humidity}<br>
+                              <b>Dew Point: </b>${getDewpoint()}<br>
+                              <b>UV Index: </b>${state.curWeather?.current_observation?.UV}<br>
+                              <b>Visibility:</b> ${getVisibility()} <br>
+                              <b>Lux:</b> ${getLux()}<br>
+                              <b>Sunrise:</b> ${state?.localSunrise} <br> <b>Sunset: </b> ${state?.localSunset} <br>
+                              <b>Wind:</b> ${state?.windStr} <br>
+                          </div>
+                          <div class="six columns">
+                              <img class="offset-by-two eight columns" src="${getWeatherIcon()}"> <br>
+                              <h2>${getTemp()}</h2>
+                              <h1 class ="offset-by-two topBorder">${state.curWeatherCond}</h1>
+                          </div>
+                      </div>
+                      <div class="row topBorder">
+                          <div class="centerText four columns">${forecastDay(0)}</div>
+                          <div class="centerText four columns">${forecastDay(1)}</div>
+                          <div class="centerText four columns">${forecastDay(2)}</div>
+                      </div>
+                      <div class="row">
+                          <div class="centerText four columns">${forecastDay(3)}</div>
+                          <div class="centerText four columns">${forecastDay(4)}</div>
+                          <div class="centerText four columns">${forecastDay(5)}</div>
+                      </div>
+                      <div class="row">
+                          <div class="centerText offset-by-two four columns">${forecastDay(6)}</div>
+                          <div class="centerText four columns">${forecastDay(7)}</div>
+                      </div>
+                      <p style="font-size: 12px; font-weight: normal; text-align: center;">Tap Icon to View Forecast</p>
+                      <div class="row topBorder">
+                          <div class="centerText offset-by-three six columns">
+                              <b>Station Id: ${state?.curWeather?.current_observation?.station_id}</b>
+                              <b>${obsrvTime}</b>
+                          </div>
+                      </div>
+
+                      <div id="openModal" class="topModal">
+                          <div>
+                              <a href="#close" title="Close" class="close">X</a>
+                              <h2>Special Message</h2>
+                              <p>${state?.walertMessage}</p>
+                          </div>
+                      </div>
+
+                      <br></br>
+
+                      ${chartHtml}
+
                     </div>
-                    <div class="row">
-                    <div class="centerText four columns">${forecastDay(3)}</div>
-                    <div class="centerText four columns">${forecastDay(4)}</div>
-                    <div class="centerText four columns">${forecastDay(5)}</div>
-                    </div>
-                    <div class="row">
-                    <div class="centerText offset-by-two four columns">${forecastDay(6)}</div>
-                    <div class="centerText four columns">${forecastDay(7)}</div>
-                    </div>		
-                    <div class="row topBorder">
-                    <div class="centerText offset-by-three six columns">
-                        <b>Station Id: ${state?.curWeather?.current_observation?.station_id}</b> 
-                        <b>${state?.curWeather?.current_observation?.observation_time}</b>
-                    </div>    
-                    </div>
-            
-                <div id="openModal" class="topModal">
-                        <div>
-                            <a href="#close" title="Close" class="close">X</a>
-                            <h2>Special Message</h2>
-                            <p>${state?.walertMessage} </p>
-                        </div>
-                    </div>
-                </div>
-            </body>
-        </html>
+            	</body>
+        	</html>
         """
         render contentType: "text/html", data: html, status: 200
     }
     catch (ex) {
-        log.error "getWeatherHtml Exception: ${ex}"
-        parent?.sendChildExceptionData("weather", devVer(), ex.toString(), "getWeatherHtml")
+        log.error "getWeatherHtml Exception: ${ex}", ex
+        exceptionDataHandler(ex.message, "getWeatherHtml")
     }
 }
+
+def showChartHtml() {
+    def data = """
+        <script type="text/javascript">
+          google.charts.load('current', {packages: ['corechart']});
+          google.charts.setOnLoadCallback(drawGraph);
+          function drawGraph() {
+              var data = new google.visualization.DataTable();
+              data.addColumn('timeofday', 'time');
+              data.addColumn('number', 'Temp (Yesterday)');
+              data.addColumn('number', 'Dew (Yesterday)');
+              data.addColumn('number', 'Temp (Today)');
+              data.addColumn('number', 'Dew (Today)');
+              data.addRows([
+                  ${getDataString(1)}
+                  ${getDataString(2)}
+                  ${getDataString(3)}
+                  ${getDataString(4)}
+              ]);
+              var options = {
+                  width: '100%',
+                  height: '100%',
+                  hAxis: {
+                      format: 'H:mm',
+                      minValue: [${getStartTime()},0,0],
+                      slantedText: true,
+                      slantedTextAngle: 30
+                  },
+                  series: {
+                      0: {targetAxisIndex: 1, color: '#FFC2C2', lineWidth: 1},
+                      1: {targetAxisIndex: 0, color: '#D1DFFF', lineWidth: 1},
+                      2: {targetAxisIndex: 1, color: '#FF0000'},
+                      3: {targetAxisIndex: 0, color: '#004CFF'}
+                  },
+                  vAxes: {
+                      0: {
+                          title: 'Dewpoint (${tempStr})',
+                          format: 'decimal',
+                          ${minstr}
+                          ${maxstr}
+                          textStyle: {color: '#004CFF'},
+                          titleTextStyle: {color: '#004CFF'}
+                      },
+                      1: {
+                          title: 'Temperature (${tempStr})',
+                          format: 'decimal',
+                          ${minstr}
+                          ${maxstr}
+                          textStyle: {color: '#FF0000'},
+                          titleTextStyle: {color: '#FF0000'}
+                      }
+                  },
+                  legend: {
+                      position: 'bottom',
+                      maxLines: 4,
+                      textStyle: {color: '#000000'}
+                  },
+                  chartArea: {
+                      left: '12%',
+                      right: '18%',
+                      top: '3%',
+                      bottom: '20%',
+                      height: '85%',
+                      width: '100%'
+                  }
+              };
+              var chart = new google.visualization.AreaChart(document.getElementById('chart_div'));
+              chart.draw(data, options);
+          }
+      </script>
+      <h4 style="font-size: 22px; font-weight: bold; text-align: center; background: #00a1db; color: #f5f5f5;">Event History</h4>
+      <div id="chart_div" style="width: 100%; height: 225px;"></div>
+    """
+    return data
+}
+
+def hideChartHtml() {
+    def data = """
+        <h4 style="font-size: 22px; font-weight: bold; text-align: center; background: #00a1db; color: #f5f5f5;">Event History</h4>
+        <br></br>
+        <div class="centerText">
+          <p>Waiting for more data to be collected</p>
+          <p>This may take at least 24 hours</p>
+        </div>
+    """
+    return data
+}
+
 private def textDevName()  { return "Nest Weather${appDevName()}" }
 private def appDevType()   { return false }
 private def appDevName()   { return appDevType() ? " (Dev)" : "" }
