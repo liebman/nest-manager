@@ -23,7 +23,7 @@ import java.text.SimpleDateFormat
 
 preferences { }
 
-def devVer() { return "2.0.0" }
+def devVer() { return "2.0.2" }
 
 metadata {
 	definition (name: "${textDevName()}", author: "Anthony S.", namespace: "tonesto7") {
