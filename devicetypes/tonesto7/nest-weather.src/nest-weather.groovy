@@ -25,7 +25,7 @@ import java.text.SimpleDateFormat
 
 preferences {  }
 
-def devVer() { return "4.0.1" }
+def devVer() { return "4.1.0" }
 
 metadata {
 	definition (name: "${textDevName()}", namespace: "tonesto7", author: "Anthony S.") {
@@ -63,8 +63,8 @@ metadata {
 		attribute "visibility", "string"
 		attribute "alert", "string"
 		attribute "alertKeys", "string"
-		attribute "sunriseDate", "string"
-		attribute "sunsetDate", "string"
+		//attribute "sunriseDate", "string"
+		//attribute "sunsetDate", "string"
 
 	}
 
@@ -97,6 +97,25 @@ metadata {
 
 mappings {
 	path("/getWeatherHTML") {action: [GET: "getWeatherHTML"]}
+}
+
+void installed() {
+	Logger("installed...")
+    verifyHC()
+}
+
+void verifyHC() {
+	def val = device.currentValue("checkInterval")
+	def timeOut = state?.hcTimeout ?: 60
+	if(!val || val.toInteger() != timeOut) {
+		Logger("verifyHC: Updating Device Health Check Interval to $timeOut")
+		sendEvent(name: "checkInterval", value: 60 * timeOut.toInteger(), data: [protocol: "cloud"], displayed: false)
+	}
+}
+
+def ping() {
+	Logger("ping...")
+	refresh()
 }
 
 def initialize() {
@@ -155,16 +174,22 @@ def generateEvent(Map eventData) {
 }
 
 def processEvent() {
+	if(state?.swVersion != devVer()) {
+		installed()
+		state.swVersion = devVer()
+	}
 	def eventData = state?.eventData
 	state.eventData = null
 	//LogAction("processEvent Parsing data ${eventData}", "trace")
 	try {
 		LogAction("------------START OF API RESULTS DATA------------", "warn")
 		if(eventData) {
+			state.showLogNamePrefix = eventData?.logPrefix == true ? true : false
 			state.tempUnit = getTemperatureScale()
 			state.clientBl = eventData?.clientBl == true ? true : false
+			state.mobileClientType = eventData?.mobileClientType
 			state.useMilitaryTime = eventData?.mt ? true : false
-			state.nestTimeZone = !location?.timeZone ? eventData?.tz : null
+			state.nestTimeZone = eventData?.tz ?: null
 			state.weatherAlertNotify = !eventData?.weathAlertNotif ? false : true
 			debugOnEvent(eventData?.debug ? true : false)
 			apiStatusEvent(eventData?.apiIssues)
@@ -694,7 +719,7 @@ def convertRfc822toDt(dt) {
 |										LOGGING FUNCTIONS										|
 *************************************************************************************************/
 void Logger(msg, logType = "debug") {
-	def smsg = "${device.displayName}: ${msg}"
+	def smsg = state?.showLogNamePrefix ? "${device.displayName}: ${msg}" : "${msg}"
 	switch (logType) {
 		case "trace":
 			log.trace "${smsg}"
@@ -1257,6 +1282,12 @@ def getMaxTemp() {
 	return list?.max()
 }
 
+def incHtmlLoadCnt() 		{ state?.htmlLoadCnt = (state?.htmlLoadCnt ? state?.htmlLoadCnt.toInteger()+1 : 1) }
+def incForecastBtnTapCnt() 	{ state?.forecastBtnTapCnt = (state?.forecastBtnTapCnt ? state?.forecastBtnTapCnt.toInteger()+1 : 1); return ""; }
+def getMetricCntData() {
+	return [weatHtmlLoadCnt:(state?.htmlLoadCnt ?: 0)]//, forecastBtnTapCnt:(state?.forecastBtnTapCnt ?: 0)]
+}
+
 def getWeatherHTML() {
 	try {
 		//LogAction("State Size: ${getStateSize()} (${getStateSizePerc()}%)")
@@ -1280,12 +1311,12 @@ def getWeatherHTML() {
 
 			def differ = maxval - minval
 			//LogAction("differ ${differ}", "trace")
-			if (differ > (maxval/4) || differ < (wantMetric() ? 10:20) ) {
-				minstr = "minValue: ${(minval - (wantMetric() ? 10:10))},"
-				if (differ < (wantMetric() ? 10:20) ) {
-				  maxstr = "maxValue: ${(maxval + (wantMetric() ? 10:10))},"
-				}
-			}
+			//if (differ > (maxval/4) || differ < (wantMetric() ? 7:15) ) {
+				minstr = "minValue: ${(minval - (wantMetric() ? 2:5))},"
+				//if (differ < (wantMetric() ? 7:15) ) {
+				maxstr = "maxValue: ${(maxval + (wantMetric() ? 2:5))},"
+				//}
+			//}
 
 			hData = """
 				<script type="text/javascript">
@@ -1453,24 +1484,13 @@ def getWeatherHTML() {
 				</body>
 			</html>
 		"""
+		incHtmlLoadCnt()
 		render contentType: "text/html", data: mainHtml, status: 200
 	}
 	catch (ex) {
 		log.error "getWeatherHTML Exception:", ex
 		exceptionDataHandler(ex.message, "getWeatherHTML")
 	}
-}
-
-def hideChartHtml() {
-	def data = """
-		<h4 style="font-size: 22px; font-weight: bold; text-align: center; background: #00a1db; color: #f5f5f5;">Event History</h4>
-		<br></br>
-		<div class="centerText">
-		  <p>Waiting for more data to be collected</p>
-		  <p>This may take at least 24 hours</p>
-		</div>
-	"""
-	return data
 }
 
 private def textDevName()  { return "Nest Weather${appDevName()}" }

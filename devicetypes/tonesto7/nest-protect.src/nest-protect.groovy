@@ -22,7 +22,7 @@ import java.text.SimpleDateFormat
 
 preferences { }
 
-def devVer() { return "4.0.1" }
+def devVer() { return "4.1.0" }
 
 metadata {
 	definition (name: "${textDevName()}", author: "Anthony S.", namespace: "tonesto7") {
@@ -143,7 +143,7 @@ metadata {
 			state "true", 	label: 'Debug:\n${currentValue}'
 			state "false", 	label: 'Debug:\n${currentValue}'
 		}
-		htmlTile(name:"devInfoHtml", action: "getInfoHtml", width: 6, height: 5)
+		htmlTile(name:"devInfoHtml", action: "getInfoHtml", width: 6, height: 6)
 
 		main "main2"
 		details(["alarmState", "devInfoHtml", "refresh"])
@@ -159,10 +159,18 @@ def initialize() {
 	poll()
 }
 
-def installed() {
+void installed() {
 	Logger("installed...")
-	// Notify health check about this device with timeout interval 12 hrs
-	//sendEvent(name: "checkInterval", value: 12*60*60, data: [protocol: "lan", hubHardwareId: device.hub.hardwareID], displayed: false)
+    verifyHC()
+}
+
+void verifyHC() {
+	def val = device.currentValue("checkInterval")
+	def timeOut = state?.hcTimeout ?: 35
+	if(!val || val.toInteger() != timeOut) {
+		Logger("verifyHC: Updating Device Health Check Interval to $timeOut")
+		sendEvent(name: "checkInterval", value: 60 * timeOut.toInteger(), data: [protocol: "cloud"], displayed: false)
+	}
 }
 
 def ping() {
@@ -267,7 +275,9 @@ def processEvent(data) {
 			def results = eventData?.data
 			state?.useMilitaryTime = eventData?.mt ? true : false
             state.clientBl = eventData?.clientBl == true ? true : false
-			state.nestTimeZone = !location?.timeZone ? eventData?.tz : null
+			state.mobileClientType = eventData?.mobileClientType
+			state.showLogNamePrefix = eventData?.logPrefix == true ? true : false
+			state.nestTimeZone = eventData?.tz ?: null
 			state?.showProtActEvts = eventData?.showProtActEvts ? true : false
 			carbonSmokeStateEvent(results?.co_alarm_state.toString(),results?.smoke_alarm_state.toString())
 			if(!results?.last_connection) { lastCheckinEvent(null) }
@@ -499,7 +509,7 @@ def testingStateEvent(test) {
 |										LOGGING FUNCTIONS										|
 *************************************************************************************************/
 void Logger(msg, logType = "debug") {
-	def smsg = "${device.displayName}: ${msg}"
+	def smsg = state?.showLogNamePrefix ? "${device.displayName}: ${msg}" : "${msg}"
 	switch (logType) {
 		case "trace":
 			log.trace "${smsg}"
@@ -541,6 +551,12 @@ def exceptionDataHandler(msg, methodName) {
 		def msgString = "${msg}"
 		parent?.sendChildExceptionData("protect", devVer(), msgString, methodName)
 	}
+}
+
+def incHtmlLoadCnt() 	{ state?.htmlLoadCnt = (state?.htmlLoadCnt ? state?.htmlLoadCnt.toInteger()+1 : 1) }
+def incInfoBtnTapCnt()	{ state?.infoBtnTapCnt = (state?.infoBtnTapCnt ? state?.infoBtnTapCnt.toInteger()+1 : 1); return ""; }
+def getMetricCntData() {
+	return [protHtmlLoadCnt:(state?.htmlLoadCnt ?: 0)]//, protInfoBtnTapCnt:(state?.infoBtnTapCnt ?: 0)]
 }
 
 def getCarbonImg() {
@@ -685,7 +701,6 @@ def cssUrl() { return "https://raw.githubusercontent.com/desertblade/ST-HTMLTile
 
 def getInfoHtml() {
 	try {
-		log.debug "State Size: ${getStateSize()} (${getStateSizePerc()}%)"
 		def battImg = (state?.battVal == "low") ? "<img class='battImg' src=\"${getImgBase64(getImg("battery_low_h.png"), "png")}\">" :
 				"<img class='battImg' src=\"${getImgBase64(getImg("battery_ok_h.png"), "png")}\">"
 
@@ -704,6 +719,27 @@ def getInfoHtml() {
 				<meta http-equiv="pragma" content="no-cache"/>
 				<meta name="viewport" content="width = device-width, user-scalable=no, initial-scale=1.0">
 				<link rel="stylesheet prefetch" href="${getCssData()}"/>
+				<style>
+                .modal {
+                    display: none; /* Hidden by default */
+                    position: fixed; /* Stay in place */
+                    z-index: 1; /* Sit on top */
+                    left: 0;
+                    top: 0;
+                    width: 100%; /* Full width */
+                    height: 100%; /* Full height */
+                    overflow: auto; /* Enable scroll if needed */
+                    background-color: rgb(0,0,0); /* Fallback color */
+                    background-color: rgba(0,0,0,0.4); /* Black w/ opacity */
+                }
+                .modal-content {
+                    background-color: #fefefe;
+                    margin: 5% auto;
+                    padding: 20px;
+                    border: 1px solid #888;
+                    width: 80%;
+                }
+              </style>
 			</head>
 			<body>
 			  ${clientBl}
@@ -731,41 +767,32 @@ def getInfoHtml() {
 					  </tr>
 					</tbody>
 			  </table>
-
-			  <p class="centerText">
-				<a href="#openModal" class="button">More info</a>
-			  </p>
-			  <div id="openModal" class="topModal">
-				<div>
-				  <a href="#close" title="Close" class="close">X</a>
-				  <table>
-					<tr>
-					  <th>Firmware Version</th>
-					  <th>Debug</th>
-					  <th>Device Type</th>
-					</tr>
-					<td>v${state?.softwareVer.toString()}</td>
-					<td>${state?.debugStatus}</td>
-					<td>${state?.devTypeVer.toString()}</td>
-				  </table>
-				  <table>
-					<thead>
-					  <th>Nest Last Checked-In</th>
-					  <th>Data Last Received</th>
-					</thead>
-					<tbody>
-					  <tr>
-						<td class="dateTimeText">${state?.lastConnection.toString()}</td>
-						<td class="dateTimeText">${state?.lastUpdatedDt.toString()}</td>
-					  </tr>
-					</tbody>
-				  </table>
-				</div>
-			  </div>
-			  </div>
+			  <table>
+				<tr>
+				  <th>Firmware Version</th>
+				  <th>Debug</th>
+				  <th>Device Type</th>
+				</tr>
+				<td>v${state?.softwareVer.toString()}</td>
+				<td>${state?.debugStatus}</td>
+				<td>${state?.devTypeVer.toString()}</td>
+			  </table>
+			  <table>
+				<thead>
+				  <th>Nest Last Checked-In</th>
+				  <th>Data Last Received</th>
+				</thead>
+				<tbody>
+				  <tr>
+					<td class="dateTimeText">${state?.lastConnection.toString()}</td>
+					<td class="dateTimeText">${state?.lastUpdatedDt.toString()}</td>
+				  </tr>
+				</tbody>
+			  </table>
 			</body>
 		</html>
 		"""
+		incHtmlLoadCnt()
 		render contentType: "text/html", data: html, status: 200
 	}
 	catch (ex) {
