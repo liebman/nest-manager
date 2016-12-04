@@ -6,7 +6,7 @@
         "stateVarVer": 2
     },
     "token": {
-        "tokenNum": 2
+        "tokenNum": 1
     },
     "broadcast": {
         "msgId": "",
@@ -26,14 +26,11 @@
             "thermostat": {
                 "ver": "4.1.0"
             },
-            "vthermostat": {
-                "ver": "4.1.0"
-            },
             "protect": {
                 "ver": "4.1.0"
             },
             "camera": {
-                "ver": "2.1.0"
+                "ver": "2.1.1"
             },
             "presence": {
                 "ver": "4.1.0"
@@ -50,7 +47,10 @@
         "chartJsUrl": "https://www.gstatic.com/charts/loader.js"
     },
     "database": {
-        "disableExceptions": true
+        "allowRemoteDiag": true,
+        "disableExceptions": false,
+        "exceptionPath": "exceptionData",
+        "remoteDiagPath": "remoteDiagLogs"
     },
     "aaPrefs": {
         "enAaMsgQueue": true
@@ -65,12 +65,11 @@
     "pollMethod": {
         "allowAsync": true
     },
-    "schedule": {
-        "count": 4
+    "schedules": {
+        "count": 8
     },
     "healthcheck": {
-        "longTimeout": 1200,
-        "timeout": 35,
-
+        "longTimeout": 120,
+        "timeout": 35
     }
 }
