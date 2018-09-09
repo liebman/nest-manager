@@ -1,11 +1,45 @@
-V5.3.2 (January 11th, 2018):
+V5.5.1 (September 8th, 2018):
 ▔▔▔▔▔▔▔▔▔▔▔
 Manager App:
- • FIXED: Lot's of bug fixes and optimizations
- • FIXED: Remote diag logging
- • UPDATED: Will remove un-needed or broken automations
- • ADDED: New Lite Install Mode (No Watchdog or Automations)
- • ADDED: Add Web UI for all of the Devices
+ • FIXED: Bug Fixes
 
-Automation App 5.3.1:
-• FIXED: More Cleanups and Bug fixes
+Automation App 5.4.4:
+ • FIXED: Bug Fixes
+
+V5.5.0 (August 28th, 2018):
+▔▔▔▔▔▔▔▔▔▔▔
+Manager App:
+ • UPDATED: NST Streaming is now communicates via local network (when enabled)
+ • FIXED: Bug Fixes
+
+Automation App 5.4.3:
+ • FIXED: Bug Fixes
+
+V5.4.0 (August 10th, 2018):
+▔▔▔▔▔▔▔▔▔▔▔
+Manager App:
+ • ADDED: Pushover Manager Integration
+
+Automation App 5.4.0:
+ • ADDED: Pushover Manager Integration
+
+V5.3.9 (July 30th, 2018):
+▔▔▔▔▔▔▔▔▔▔▔
+Manager App:
+ • ADDED: Camera Motion Zone Filtering (Requires Nest Aware and NST Streaming Service)
+ • FIXED: Bug fixes and Code Cleanups/Optimizations
+
+Automation App 5.3.6:
+• REMOVED: Support for Contact Book
+
+V5.3.8 (July 4th, 2018):
+▔▔▔▔▔▔▔▔▔▔▔
+Manager App:
+ • FIXED: Storage App file no longer required
+ • FIXED: Bug fixes and Code Cleanups
+
+Automation App 5.3.5:
+• FIXED: Converted degree symbols to unicode
+• ADDED: Storage codebase is now part of Automations file
+• FIXED: Code Cleanups and State Usage Reductions
+

@@ -3,7 +3,7 @@
  *	Author: Anthony S. (@tonesto7)
  *	Co-Authors: Ben W. (@desertblade), Eric S. (@E_Sch)
  *
- *	Copyright (C) 2017 Anthony S.
+ *	Copyright (C) 2017, 2018 Anthony S.
  * 	Licensing Info: Located at https://raw.githubusercontent.com/tonesto7/nest-manager/master/LICENSE.md
  */
 
@@ -11,10 +11,10 @@ import java.text.SimpleDateFormat
 
 preferences { }
 
-def devVer() { return "5.3.1" }
+def devVer() { return "5.4.1" }
 
 metadata {
-	definition (name: "${textDevName()}", author: "Anthony S.", namespace: "tonesto7") {
+	definition (name: "${textDevName()}", author: "Anthony S.", namespace: "tonesto7", ocfDeviceType: "x.com.st.d.sensor.smoke", vid: "generic-smoke-co") {
 		//capability "Polling"
 		capability "Actuator"
 		capability "Sensor"
@@ -110,7 +110,7 @@ metadata {
 		valueTile("uiColor", "device.uiColor", inactiveLabel: false, width: 2, height: 1, decoration: "flat", wordWrap: true) {
 			state("default", label: 'UI Color:\n${currentValue}')
 		}
-		valueTile("softwareVer", "device.softwareVer", inactiveLabel: false, width: 2, height: 1, decoration: "flat", wordWrap: true) {
+		valueTile("softwareVer", "device.softwareVer", inactiveLabel: false, width: 3, height: 1, decoration: "flat", wordWrap: true) {
 			state("default", label: 'Firmware:\nv${currentValue}')
 		}
 		valueTile("lastConnection", "device.lastConnection", inactiveLabel: false, width: 3, height: 1, decoration: "flat", wordWrap: true) {
@@ -122,10 +122,10 @@ metadata {
 		standardTile("refresh", "device.refresh", width:2, height:2, decoration: "flat") {
 			state "default", action:"refresh.refresh", icon:"https://raw.githubusercontent.com/tonesto7/nest-manager/master/Images/Devices/refresh_icon.png"
 		}
-		valueTile("lastUpdatedDt", "device.lastUpdatedDt", width: 4, height: 1, decoration: "flat", wordWrap: true) {
+		valueTile("lastUpdatedDt", "device.lastUpdatedDt", width: 3, height: 1, decoration: "flat", wordWrap: true) {
 			state("default", label: 'Data Last Received:\n${currentValue}')
 		}
-		valueTile("devTypeVer", "device.devTypeVer",  width: 2, height: 1, decoration: "flat") {
+		valueTile("devTypeVer", "device.devTypeVer",  width: 3, height: 1, decoration: "flat") {
 			state("default", label: 'Device Type:\nv${currentValue}')
 		}
 		valueTile("apiStatus", "device.apiStatus", width: 2, height: 1, decoration: "flat", wordWrap: true) {
@@ -142,7 +142,8 @@ metadata {
 		htmlTile(name:"devInfoHtml", action: "getInfoHtml", width: 6, height: 8)
 
 		main "main2"
-		details(["alarmState", "devInfoHtml","remind", "refresh"])
+		// details(["alarmState", "devInfoHtml","remind", "refresh"])
+		details(["alarmState", "smoke", "batteryState", "carbonMonoxide", "onlineStatus","debugOn",  "apiStatus",  "lastConnection", "lastUpdatedDt", "lastTested","devTypeVer",  "softwareVer","remind", "refresh"])
    }
 }
 
@@ -156,7 +157,7 @@ def initialize() {
 	if (!state.updatedLastRanAt || now() >= state.updatedLastRanAt + 2000) {
 		state.updatedLastRanAt = now()
 		verifyHC()
-		//poll()
+		state?.isInstalled = true
 	} else {
 		log.trace "initialize(): Ran within last 2 seconds - SKIPPING"
 	}
@@ -164,13 +165,12 @@ def initialize() {
 
 void installed() {
 	Logger("installed...")
-	initialize()
-	state?.isInstalled = true
+	runIn(5, "initialize", [overwrite: true])
 }
 
 void updated() {
 	Logger("updated...")
-	initialize()
+	runIn(5, "initialize", [overwrite: true])
 }
 
 def useTrackedHealth() { return state?.useTrackedHealth ?: false }
@@ -178,7 +178,7 @@ def useTrackedHealth() { return state?.useTrackedHealth ?: false }
 def getHcTimeout() {
 	def toBatt = state?.hcBattTimeout
 	def toWire = state?.hcWireTimeout
-	return ((device.currentValue("powerSourceNest") == "wired") ? (toWire instanceof Integer ? toWire : 35) : (toBatt instanceof Integer ? toBatt : 1500))*60
+	return ((device.currentValue("powerSourceNest") == "wired") ? (toWire instanceof Integer ? toWire : 45) : (toBatt instanceof Integer ? toBatt : 1500))*60
 }
 
 void verifyHC() {
@@ -204,10 +204,8 @@ def modifyDeviceStatus(status) {
 }
 
 def ping() {
-//	if(useTrackedHealth()) {
-		Logger("ping...")
-		keepAwakeEvent()
-//	}
+	Logger("ping...")
+	keepAwakeEvent()
 }
 
 def keepAwakeEvent() {
@@ -257,7 +255,7 @@ void runSmokeTest() {
 		schedEndTest()
 	} catch (ex) {
 		log.error "runSmokeTest Exception:", ex
-		exceptionDataHandler(ex.message, "runSmokeTest")
+		exceptionDataHandler(ex?.message, "runSmokeTest")
 	}
 }
 
@@ -270,7 +268,7 @@ void runCoTest() {
 		schedEndTest()
 	} catch (ex) {
 		log.error "runCoTest Exception:", ex
-		exceptionDataHandler(ex.message, "runCoTest")
+		exceptionDataHandler(ex?.message, "runCoTest")
 	}
 }
 
@@ -283,7 +281,7 @@ void runBatteryTest() {
 		schedEndTest()
 	} catch (ex) {
 		log.error "runBatteryTest Exception:", ex
-		exceptionDataHandler(ex.message, "runBatteryTest")
+		exceptionDataHandler(ex?.message, "runBatteryTest")
 	}
 }
 
@@ -293,7 +291,7 @@ void schedEndTest() {
 		refresh()  // this typically takes more than 5 seconds to complete
 	} catch (ex) {
 		log.error "schedEndTest Exception:", ex
-		exceptionDataHandler(ex.message, "schedEndTest")
+		exceptionDataHandler(ex?.message, "schedEndTest")
 	}
 }
 
@@ -305,7 +303,7 @@ void endTest() {
 		refresh()
 	} catch (ex) {
 		log.error "endTest Exception:", ex
-		exceptionDataHandler(ex.message, "endTest")
+		exceptionDataHandler(ex?.message, "endTest")
 	}
 }
 
@@ -329,7 +327,7 @@ def processEvent(data) {
 	state.remove("eventData")
 
 	//log.trace("processEvent Parsing data ${eventData}")
-	try {
+//	try {
 		LogAction("------------START OF API RESULTS DATA------------", "warn")
 		if(eventData) {
 			def results = eventData?.data
@@ -338,14 +336,13 @@ def processEvent(data) {
 			state.restStreaming = eventData?.restStreaming == true ? true : false
 			state.showLogNamePrefix = eventData?.logPrefix == true ? true : false
 			state.enRemDiagLogging = eventData?.enRemDiagLogging == true ? true : false
-			state.healthMsg = eventData?.healthNotify == true ? true : false
-//			if(useTrackedHealth()) {
-				if((eventData.hcBattTimeout && (state?.hcBattTimeout != eventData?.hcBattTimeout || !state?.hcBattTimeout)) || (eventData.hcWireTimeout && (state?.hcWireTimeout != eventData?.hcWireTimeout || !state?.hcWireTimeout))) {
-					state.hcBattTimeout = eventData?.hcBattTimeout
-					state.hcWireTimeout = eventData?.hcWireTimeout
-					verifyHC()
-				}
-//			}
+			state.healthMsg = eventData?.healthNotify?.healthMsg == true ? true : false
+			state.healthMsgWait = eventData?.healthNotify?.healthMsgWait
+			if((eventData.hcBattTimeout && (state?.hcBattTimeout != eventData?.hcBattTimeout || !state?.hcBattTimeout)) || (eventData.hcWireTimeout && (state?.hcWireTimeout != eventData?.hcWireTimeout || !state?.hcWireTimeout))) {
+				state.hcBattTimeout = eventData?.hcBattTimeout
+				state.hcWireTimeout = eventData?.hcWireTimeout
+				verifyHC()
+			}
 			state?.useMilitaryTime = eventData?.mt ? true : false
 			state.clientBl = eventData?.clientBl == true ? true : false
 			state.mobileClientType = eventData?.mobileClientType
@@ -364,19 +361,19 @@ def processEvent(data) {
 			softwareVerEvent(results?.software_version.toString())
 			deviceVerEvent(eventData?.latestVer.toString())
 			state?.devBannerData = eventData?.devBannerData ?: null
-			if(eventData?.htmlInfo) { state?.htmlInfo = eventData?.htmlInfo }
 			if(eventData?.allowDbException) { state?.allowDbException = eventData?.allowDbException = false ? false : true }
 			determinePwrSrc()
 
-			lastUpdatedEvent()
+			lastUpdatedEvent(true)
 			checkHealth()
 		}
 		return null
-	}
+/*	}
 	catch (ex) {
 		log.error "generateEvent Exception:", ex
-		exceptionDataHandler(ex.message, "generateEvent")
+		exceptionDataHandler(ex?.message, "generateEvent")
 	}
+*/
 }
 
 def getDtNow() {
@@ -476,8 +473,6 @@ def lastCheckinEvent(checkin, isOnline) {
 	tf.setTimeZone(getTimeZone())
 
 	def lastChk = device.currentState("lastConnection")?.value
-	def lastConnSeconds = lastChk ? getTimeDiffSeconds(lastChk) : 9000   // try not to disrupt running average for pwr determination
-
 	def prevOnlineStat = device.currentState("onlineStatus")?.value
 
 	def hcTimeout = getHcTimeout()
@@ -486,11 +481,6 @@ def lastCheckinEvent(checkin, isOnline) {
 	def curConnSeconds = (checkin && curConnFmt != "Not Available") ? getTimeDiffSeconds(curConnFmt) : 3000
 
 	def onlineStat = isOnline.toString() == "true" ? "online" : "offline"
-	LogAction("lastCheckinEvent($checkin, $isOnline) | onlineStatus: $onlineStat | lastConnSeconds: $lastConnSeconds | hcTimeout: ${hcTimeout} | curConnSeconds: ${curConnSeconds}")
-	if(hcTimeout && isOnline.toString() == "true" && curConnSeconds > hcTimeout && lastConnSeconds > hcTimeout) {
-		onlineStat = "offline"
-		LogAction("lastCheckinEvent: UPDATED onlineStatus: $onlineStat")
-	}
 
 	state?.lastConnection = curConn?.toString()
 	if(isStateChange(device, "lastConnection", curConnFmt.toString())) {
@@ -498,6 +488,17 @@ def lastCheckinEvent(checkin, isOnline) {
 		sendEvent(name: 'lastConnection', value: curConnFmt?.toString(), displayed: state?.showProtActEvts, isStateChange: true)
 		if(lastConnSeconds >= 0 && onlineStat == "online") { addCheckinTime(lastConnSeconds) }
 	} else { LogAction("Last Nest Check-in was: (${curConnFmt}) | Original State: (${lastChk})") }
+
+	lastChk = device.currentState("lastConnection")?.value
+	def lastConnSeconds = lastChk ? getTimeDiffSeconds(lastChk) : 9000   // try not to disrupt running average for pwr determination
+
+	if(hcTimeout && isOnline.toString() == "true" && curConnSeconds > hcTimeout && lastConnSeconds > hcTimeout) {
+		onlineStat = "offline"
+		LogAction("lastCheckinEvent: UPDATED onlineStatus: $onlineStat")
+		Logger("lastCheckinEvent($checkin, $isOnline) | onlineStatus: $onlineStat | lastConnSeconds: $lastConnSeconds | hcTimeout: ${hcTimeout} | curConnSeconds: ${curConnSeconds}")
+	} else {
+		LogAction("lastCheckinEvent($checkin, $isOnline) | onlineStatus: $onlineStat | lastConnSeconds: $lastConnSeconds | hcTimeout: ${hcTimeout} | curConnSeconds: ${curConnSeconds}")
+	}
 
 	state?.onlineStatus = onlineStat
 	modifyDeviceStatus(onlineStat)
@@ -530,7 +531,7 @@ def addCheckinTime(val) {
 def determinePwrSrc() {
 	if(!state?.checkinTimeList) { state?.checkinTimeList = [] }
 	def checkins = state?.checkinTimeList
-	def checkinAvg = checkins?.size() ? ( checkins?.sum()?.div(checkins?.size()))?.toDouble()?.round(0).toInteger() : null //
+	def checkinAvg = checkins?.size() ? ( checkins?.sum()?.div(checkins?.size()))?.toDouble()?.round(0).toInteger() : null
 	if(checkins?.size() > 7) {
 		if(checkinAvg && checkinAvg < 10000) {
 			powerTypeEvent(true)
@@ -684,7 +685,8 @@ def healthNotifyOk() {
 	def lastDt = state?.lastHealthNotifyDt
 	if(lastDt) {
 		def ldtSec = getTimeDiffSeconds(lastDt)
-		if(ldtSec < 600) {
+		def t0 = state?.healthMsgWait ?: 3600
+		if(ldtSec < t0) {
 			return false
 		}
 	}
@@ -709,7 +711,7 @@ def lastN(String input, n) {
 }
 
 void Logger(msg, logType = "debug") {
-	def smsg = state?.showLogNamePrefix ? "${device.displayName}: ${msg}" : "${msg}"
+	def smsg = state?.showLogNamePrefix ? "${device.displayName} (v${devVer()}) | ${msg}" : "${msg}"
 	def theId = lastN(device.getId().toString(),5)
 	if(state?.enRemDiagLogging) {
 		parent.saveLogtoRemDiagStore(smsg, logType, "Protect-${theId}")
@@ -773,15 +775,15 @@ def getCarbonImg(b64=true) {
 	def captionClass = ""
 	switch(carbonVal) {
 		case "warning":
-			img = b64 ? getFileBase64(getImg("co2_warn_status.png"), "image", "png") : getImg("co2_warn_status.png")
+			img = getImg("co2_warn_status.png")
 			captionClass = "alarmWarnCap"
 			break
 		case "emergency":
-			img = b64 ? getFileBase64(getImg("co2_emergency_status.png"), "image", "png") : getImg("co2_emergency_status.png")
+			img = getImg("co2_emergency_status.png")
 			captionClass = "alarmEmerCap"
 			break
 		default:
-			img = b64 ? getFileBase64(getImg("co2_clear_status.png"), "image", "png") : getImg("co2_clear_status.png")
+			img = getImg("co2_clear_status.png")
 			captionClass = "alarmClearCap"
 			break
 	}
@@ -797,15 +799,15 @@ def getSmokeImg(b64=true) {
 	def captionClass = ""
 	switch(smokeVal) {
 		case "warning":
-			img = b64 ? getFileBase64(getImg("smoke_warn_status.png"), "image", "png") : getImg("smoke_warn_status.png")
+			img = getImg("smoke_warn_status.png")
 			captionClass = "alarmWarnCap"
 			break
 		case "emergency":
-			img = b64 ? getFileBase64(getImg("smoke_emergency_status.png"), "image", "png") : getImg("smoke_emergency_status.png")
+			img = getImg("smoke_emergency_status.png")
 			captionClass = "alarmEmerCap"
 			break
 		default:
-			img = b64 ? getFileBase64(getImg("smoke_clear_status.png"), "image", "png") : getImg("smoke_clear_status.png")
+			img = getImg("smoke_clear_status.png")
 			captionClass = "alarmClearCap"
 			break
 	}
@@ -848,46 +850,27 @@ def devVerInfo()	{ return getWebData([uri: "https://raw.githubusercontent.com/${
 
 def getFileBase64(url, preType, fileType) {
 	try {
-		def params = [
-			uri: url,
-			contentType: '$preType/$fileType'
-		]
+		def params = [uri: url, contentType: "$preType/$fileType"]
 		httpGet(params) { resp ->
-			if(resp.data) {
-				def respData = resp?.data
-				ByteArrayOutputStream bos = new ByteArrayOutputStream()
-				int len
-				int size = 4096
-				byte[] buf = new byte[size]
-				while ((len = respData.read(buf, 0, size)) != -1)
-					bos.write(buf, 0, len)
-				buf = bos.toByteArray()
-				//log.debug "buf: $buf"
-				String s = buf?.encodeBase64()
-				//log.debug "resp: ${s}"
-				return s ? "data:${preType}/${fileType};base64,${s.toString()}" : null
+			if(resp?.status == 200) {
+				if(resp.data) {
+					def respData = resp?.data
+					byte[] byteData = resp?.data?.getBytes()
+					String enc = byteData?.encodeBase64()
+					// log.debug "enc: ${enc}"
+					return enc ? "data:${preType}/${fileType};base64,${enc?.toString()}" : null
+				}
+			} else {
+				LogAction("getFileBase64 Resp: ${resp?.status} ${url}", "error")
+				exceptionDataHandler("resp ${ex?.response?.status} ${url}", "getFileBase64")
+				return null
 			}
 		}
-	}
-	catch (ex) {
+	} catch (ex) {
 		log.error "getFileBase64 Exception:", ex
-		exceptionDataHandler(ex.message, "getFileBase64")
+		exceptionDataHandler(ex?.message, "getFileBase64")
 	}
 }
-
-def getCssData() {
-	def cssData = null
-	def htmlInfo = state?.htmlInfo
-	if(htmlInfo?.cssUrl && htmlInfo?.cssVer) {
-		cssData = getFileBase64(htmlInfo.cssUrl, "text", "css")
-		state?.cssVer = htmlInfo?.cssVer
-	} else {
-		cssData = getFileBase64(cssUrl(), "text", "css")
-	}
-	return cssData
-}
-
-def cssUrl()	 { return "https://raw.githubusercontent.com/tonesto7/nest-manager/master/Documents/css/ST-HTML.min.css" }
 
 def disclaimerMsg() {
 	if(!state?.disclaimerMsgShown) {
@@ -908,7 +891,7 @@ def getChgLogHtml() {
 	if(!state?.shownChgLog == true) {
 		chgStr = """
 			<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
-			<script src="https://cdnjs.cloudflare.com/ajax/libs/vex-js/3.1.0/js/vex.combined.min.js"></script>
+			<script src="https://cdnjs.cloudflare.com/ajax/libs/vex-js/3.1.1/js/vex.combined.min.js"></script>
 			<script>
 				\$(document).ready(function() {
 				    vex.dialog.alert({
@@ -929,8 +912,7 @@ def hasHtml() { return true }
 
 def getInfoHtml() {
 	try {
-		def battImg = (state?.battVal == "low") ? "<img class='battImg' src=\"${getFileBase64(getImg("battery_low_h.png"), "image", "png")}\">" :
-				"<img class='battImg' src=\"${getFileBase64(getImg("battery_ok_h.png"), "image", "png")}\">"
+		def battImg = (state?.battVal == "low") ? """<img class="battImg" src="${getImg("battery_low_h.png")}">""" : """<img class="battImg" src="${getImg("battery_ok_h.png")}">"""
 
 		def testVal = device.currentState("isTesting")?.value
 		def testModeHTML = (testVal.toString() == "true") ? "<h3>Test Mode</h3>" : ""
@@ -964,13 +946,11 @@ def getInfoHtml() {
 				<meta http-equiv="expires" content="Tue, 01 Jan 1980 1:00:00 GMT"/>
 				<meta http-equiv="pragma" content="no-cache"/>
 				<meta name="viewport" content="width = device-width, user-scalable=no, initial-scale=1.0">
-                <script type="text/javascript" src="${getFileBase64("https://cdnjs.cloudflare.com/ajax/libs/jquery/3.1.1/jquery.min.js", "text", "javascript")}"></script>
 
-				<link rel="stylesheet prefetch" href="${getCssData()}"/>
-				<link rel="stylesheet" href="${getFileBase64("https://cdnjs.cloudflare.com/ajax/libs/vex-js/3.1.0/css/vex.min.css", "text", "css")}" />
-				<link rel="stylesheet" href="${getFileBase64("https://cdnjs.cloudflare.com/ajax/libs/vex-js/3.1.0/css/vex-theme-top.min.css", "text", "css")}" />
-				<style>
-				</style>
+				<link rel="stylesheet" type="text/css" href="https://cdn.rawgit.com/tonesto7/nest-manager/master/Documents/css/ST-HTML.min.css"/>
+				<link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/vex-js/3.1.1/css/vex.min.css" async/>
+				<link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/vex-js/3.1.1/css/vex-theme-top.min.css" async />
+				<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
 			</head>
 			<body>
 			  ${getChgLogHtml()}
@@ -1079,14 +1059,13 @@ def getInfoHtml() {
 	}
 	catch (ex) {
 		log.error "getInfoHtml Exception:", ex
-		exceptionDataHandler(ex.message, "getInfoHtml")
+		exceptionDataHandler(ex?.message, "getInfoHtml")
 	}
 }
 
 def getDeviceTile(devNum) {
 	try {
-		def battImg = (state?.battVal == "low") ? "<img class='battImg' src=\"${getImg("battery_low_h.png")}\">" :
-				"<img class='battImg' src=\"${getImg("battery_ok_h.png")}\">"
+		def battImg = (state?.battVal == "low") ? """<img class="battImg" src="${getImg("battery_low_h.png")}">""" : """<img class="battImg" src="${getImg("battery_ok_h.png")}">"""
 
 		def testVal = device.currentState("isTesting")?.value
 		def testModeHTML = (testVal.toString() == "true") ? "<h3>Test Mode</h3>" : ""
@@ -1183,7 +1162,7 @@ def getDeviceTile(devNum) {
 	}
 	catch (ex) {
 		log.error "getDeviceTile Exception:", ex
-		exceptionDataHandler(ex.message, "getInfoHtml")
+		exceptionDataHandler(ex?.message, "getInfoHtml")
 	}
 }
 
