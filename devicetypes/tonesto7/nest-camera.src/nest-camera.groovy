@@ -13,7 +13,7 @@ import groovy.time.TimeCategory
 
 preferences { }
 
-def devVer() { return "5.4.1" }
+def devVer() { return "5.4.4" }
 
 metadata {
 	definition (name: "${textDevName()}", author: "Anthony S.", namespace: "tonesto7") {
@@ -126,18 +126,19 @@ metadata {
 			state("default", label: 'Data Last Received:\n${currentValue}')
 		}
 		valueTile("devTypeVer", "device.devTypeVer",  width: 3, height: 1, decoration: "flat") {
-			state("default", label: 'Device Type:\nv${currentValue}')
+			state("default", label: 'Device Type:\nv${currentValue}', defaultState: true)
 		}
 		valueTile("apiStatus", "device.apiStatus", width: 2, height: 1, decoration: "flat", wordWrap: true) {
-			state "ok", label: "API Status:\nOK"
-			state "issue", label: "API Status:\nISSUE ", backgroundColor: "#FFFF33"
+                        state "Good", label: "API Status:\nOK"
+                        state "Sporadic", label: "API Status:\nISSUE ", backgroundColor: "#FFFF33"
+                        state "Outage", label: "API Status:\nISSUE ", backgroundColor: "#FFFF33"
 		}
 		standardTile("refresh", "device.refresh", width:2, height:2, decoration: "flat") {
 			state "default", action:"refresh.refresh", icon:"https://raw.githubusercontent.com/tonesto7/nest-manager/master/Images/Devices/refresh_icon.png"
 		}
 		htmlTile(name:"devCamHtml", action: "getCamHtml", width: 6, height: 10, whitelist: ["raw.githubusercontent.com", "cdn.rawgit.com", "cdnjs.cloudflare.com"])
 		valueTile("remind", "device.blah", inactiveLabel: false, width: 6, height: 2, decoration: "flat", wordWrap: true) {
-			state("default", label: 'Reminder:\nHTML Content is Available in SmartApp')
+			state("default", label: 'Reminder:\nHTML Content is Available in SmartApp', defaultState: true)
 		}
 		main "isStreamingStatus"
 		details(["videoPlayer", "isStreaming", "take", "refresh", "cameraDetails", "motion", "sound","onlineStatus","debugOn",  "apiStatus",  "lastConnection", "lastUpdatedDt", "lastTested","devTypeVer",  "softwareVer", "devCamHtml", "remind" ])
@@ -317,7 +318,7 @@ def processEvent() {
 			publicShareEnabledEvent(results?.is_public_share_enabled?.toString())
 			videoHistEnabledEvent(results?.is_video_history_enabled?.toString())
 			if(results?.last_is_online_change) { lastOnlineEvent(results?.last_is_online_change?.toString()) }
-			if(eventData?.allowDbException) { state?.allowDbException = eventData?.allowDbException = false ? false : true }
+			if(eventData?.allowDbException) { state?.allowDbException = eventData?.allowDbException == false ? false : true }
 			apiStatusEvent(eventData?.apiIssues)
 			debugOnEvent(eventData?.debug ? true : false)
 			state?.camMotionZones = eventData?.camMotionZones ?: []
@@ -325,7 +326,8 @@ def processEvent() {
 			softwareVerEvent(results?.software_version?.toString())
 			if(results?.activity_zones) { state?.activityZones = results?.activity_zones }
 			
-			if(results?.snapshot_url) { state?.snapshot_url = results?.snapshot_url?.toString() }
+			//if(results?.snapshot_url) { state?.snapshot_url = results?.snapshot_url?.toString() }
+			imageEvent(results?.snapshot_url?.toString())
 			if(results?.app_url) { state?.app_url = results?.app_url?.toString() }
 			if(results?.web_url) { state?.web_url = results?.web_url?.toString() }
 			if(results?.last_event) {
@@ -721,6 +723,25 @@ void soundEvtHandler(data) {
 	} else { LogAction("Sound Sensor State: (${sndStat}) | Original State: (${curSound})") }
 }
 
+def imageEvent(url) {
+	def clearUrl = true
+	if(state?.isOnline && state?.isStreaming && url != null && url != "") {
+		if(url?.startsWith("https://")) {
+			def curImage = device.currentState("image")?.stringValue
+			state.snapshot_url = url
+			clearUrl = false
+			if(isStateChange(device, "image", url?.toString())) {
+				LogAction("UPDATED | Image Url: (${url}) | Original State: (${curImage})")
+				sendEvent(name: "image", value: url, descriptionText: "Image URL ${url}", displayed: false, isStateChange: true, state: url) 
+			}
+		}
+	}
+	if(clearUrl) {
+		state.snapshot_url = null
+		sendEvent(name: "image", value: "", descriptionText: "Image URL Cleared", displayed: false) 
+	}
+}
+
 def debugOnEvent(debug) {
 	def val = device.currentState("debugOn")?.value
 	def dVal = debug ? "On" : "Off"
@@ -735,8 +756,8 @@ def debugOnEvent(debug) {
 
 def apiStatusEvent(issue) {
 	def curStat = device.currentState("apiStatus")?.value
-	def newStat = issue ? "Has Issue" : "Good"
-	state?.apiStatus = newStat
+	def newStat = issue
+	state.apiStatus = newStat
 	if(isStateChange(device, "apiStatus", newStat?.toString())) {
 		Logger("UPDATED | API Status is: (${newStat}) | Original State: (${curStat})")
 		sendEvent(name: "apiStatus", value: newStat, descriptionText: "API Status is: ${newStat}", displayed: true, isStateChange: true, state: newStat)

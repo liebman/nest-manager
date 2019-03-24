@@ -26,8 +26,8 @@ definition(
 	appSetting "devOpt"
 }
 
-def appVersion() { "5.4.4" }
-def appVerDate() { "09-08-2018" }
+def appVersion() { "5.5.0" }
+def appVerDate() { "01-25-2019" }
 
 preferences {
 	//startPage
@@ -589,7 +589,7 @@ def initAutoApp() {
 			atomicState."schedule${cnt}MotionEnabled" = null
 			atomicState."schedule${cnt}SensorEnabled" = null
 
-			def newscd = []
+			def newscd = [:]
 			def act = settings["${sLbl}SchedActive"]
 			if(act) {
 				newscd = cleanUpMap([
@@ -1796,6 +1796,7 @@ private remSenCheck() {
 		} else {
 			//log.info "remSenCheck: Evaluating Event"
 
+			def tempScaleStr = "${tUnitStr()}"
 			def hvacMode = remSenTstat ? remSenTstat?.currentnestThermostatMode?.toString() : null
 			if(hvacMode in [ "off", "eco"] ) {
 				LogAction("Remote Sensor: Skipping Evaluation; The Current Thermostat Mode is '${strCapitalize(hvacMode)}'", "info", true)
@@ -1821,7 +1822,7 @@ private remSenCheck() {
 			def tempChangeVal = !remSenTstatTempChgVal ? 5.0 : Math.min(Math.max(remSenTstatTempChgVal.toDouble(), 2.0), 5.0)
 			def maxTempChangeVal = tempChangeVal * 3
 			def curTstatTemp = getDeviceTemp(remSenTstat).toDouble()
-			def curSenTemp = (settings?.remSensorDay) ? getRemoteSenTemp().toDouble() : null
+			def curSenTemp = getRemoteSenTemp().toDouble()
 
 			def curTstatOperState = remSenTstat?.currentThermostatOperatingState.toString()
 			def curTstatFanMode = remSenTstat?.currentThermostatFanMode.toString()
@@ -1940,7 +1941,7 @@ private remSenCheck() {
 						}
 
 					} else {
-						LogAction("Remote Sensor: NO CHANGE TO COOL - CoolSetpoint is (${curCoolSetpoint}${tUnitStr()}) ", "info", false)
+						LogAction("Remote Sensor: NO CHANGE TO COOL - CoolSetpoint is (${curCoolSetpoint}${tempScaleStr}) ", "info", false)
 					}
 				}
 			}
@@ -1999,7 +2000,7 @@ private remSenCheck() {
 							return // let all this take effect
 						}
 					} else {
-						LogAction("Remote Sensor: NO CHANGE TO HEAT - HeatSetpoint is already (${curHeatSetpoint}${tUnitStr()})", "info", false)
+						LogAction("Remote Sensor: NO CHANGE TO HEAT - HeatSetpoint is already (${curHeatSetpoint}${tempScaleStr})", "info", false)
 					}
 				}
 			}
@@ -2077,8 +2078,8 @@ def getRemoteSenThreshold() {
 
 def getRemoteSenTemp() {
 	def mySched = getCurrentSchedule()
-	if(!atomicState.remoteTempSourceStr) { atomicState.remoteTempSourceStr = null }
-	if(!atomicState.currentSchedNum) { atomicState.currentSchedNum = null }
+	if(atomicState?.remoteTempSourceStr != null) { atomicState.remoteTempSourceStr = null }
+	if(atomicState?.currentSchedNum != null) { atomicState.currentSchedNum = null }
 	def sens
 	if(mySched) {
 		def sLbl = "schMot_${mySched}_"
@@ -2089,12 +2090,11 @@ def getRemoteSenTemp() {
 			return getDeviceTempAvg(sens).toDouble()
 		}
 	}
-	if(settings?.remSensorDay) {
+	if(isRemSenConfigured()) {
 		atomicState.remoteTempSourceStr = "Remote Sensor"
 		atomicState.currentSchedNum = null
 		return getDeviceTempAvg(settings?.remSensorDay).toDouble()
-	}
-	else {
+	} else {
 		atomicState.remoteTempSourceStr = "Thermostat"
 		atomicState.currentSchedNum = null
 		return getDeviceTemp(schMotTstat).toDouble()
@@ -2106,8 +2106,8 @@ def getRemoteSenTemp() {
 	}
 }
 
-def fixTempSetting(Double temp) {
-	def newtemp = temp
+def fixTempSetting(temp) {
+	Double newtemp = temp?.toDouble()
 	if(temp != null) {
 		if(getTemperatureScale() == "C") {
 			if(temp > 35) {    // setting was done in F
@@ -2128,16 +2128,18 @@ def setRemoteSenTstat(val) {
 }
 
 def getRemSenCoolSetTemp(curMode=null, isEco=false, useCurrent=true) {
-	def coolTemp
+	Double coolTemp
 	def theMode = curMode != null ? curMode : null
 	if(theMode == null) {
 		def tstat = schMotTstat
 		theMode = tstat ? tstat?.currentnestThermostatMode.toString() : null
 	}
+	atomicState.remoteCoolSetSourceStr = ""
 	if(theMode != "eco") {
 		if(getLastOverrideCoolSec() < (3600 * 4)) {
 			if(atomicState?.coolOverride != null) {
 				coolTemp = fixTempSetting(atomicState?.coolOverride.toDouble())
+				atomicState.remoteCoolSetSourceStr = "Remote Sensor Override"
 			}
 		} else { atomicState?.coolOverride = null }
 
@@ -2147,23 +2149,34 @@ def getRemSenCoolSetTemp(curMode=null, isEco=false, useCurrent=true) {
 				def useMotion = atomicState?."motion${mySched}UseMotionSettings"
 				def hvacSettings = atomicState?."sched${mySched}restrictions"
 				coolTemp = !useMotion ? hvacSettings?.ctemp : hvacSettings?.mctemp ?: hvacSettings?.ctemp
+				atomicState.remoteCoolSetSourceStr = "Schedule"
 			}
 // ERS if Remsensor is enabled
 			if(isRemSenConfigured()) {
 				if(theMode == "cool" && coolTemp == null /* && isEco */) {
-					if(atomicState?.extTmpLastDesiredTemp) { coolTemp = atomicState?.extTmpLastDesiredTemp }
+					if(atomicState?.extTmpLastDesiredTemp) {
+						coolTemp = atomicState?.extTmpLastDesiredTemp.toDouble()
+						atomicState.remoteCoolSetSourceStr = "Last Desired Temp"
+					}
 				}
 				if(theMode == "auto" && coolTemp == null /* && isEco */) {
-					if(atomicState?.extTmpLastDesiredCTemp) { coolTemp = atomicState?.extTmpLastDesiredCTemp }
+					if(atomicState?.extTmpLastDesiredCTemp) {
+						coolTemp = atomicState?.extTmpLastDesiredCTemp.toDouble()
+						atomicState.remoteCoolSetSourceStr = "Last Desired CTemp"
+					}
 				}
 
 				if(coolTemp == null && remSenDayCoolTemp) {
 					coolTemp = remSenDayCoolTemp.toDouble()
+					atomicState.remoteCoolSetSourceStr = "RemSen Day Cool Temp"
 				}
 
 				if(coolTemp == null) {
 					def desiredCoolTemp = getGlobalDesiredCoolTemp()
-					if(desiredCoolTemp) { coolTemp = desiredCoolTemp.toDouble() }
+					if(desiredCoolTemp) {
+						coolTemp = desiredCoolTemp.toDouble()
+						atomicState.remoteCoolSetSourceStr = "Global Desired Cool Temp"
+					}
 				}
 
 				if(coolTemp) {
@@ -2174,21 +2187,24 @@ def getRemSenCoolSetTemp(curMode=null, isEco=false, useCurrent=true) {
 	}
 	if(coolTemp == null && useCurrent) {
 		coolTemp = schMotTstat ? getTstatSetpoint(schMotTstat, "cool") : coolTemp
+		atomicState.remoteCoolSetSourceStr = "Thermostat"
 	}
 	return coolTemp
 }
 
 def getRemSenHeatSetTemp(curMode=null, isEco=false, useCurrent=true) {
-	def heatTemp
+	Double heatTemp
 	def theMode = curMode != null ? curMode : null
 	if(theMode == null) {
 		def tstat = schMotTstat
 		theMode = tstat ? tstat?.currentnestThermostatMode.toString() : null
 	}
+	atomicState.remoteHeatSetSourceStr = ""
 	if(theMode != "eco") {
 		if(getLastOverrideHeatSec() < (3600 * 4)) {
 			if(atomicState?.heatOverride != null) {
 				heatTemp = fixTempSetting(atomicState.heatOverride.toDouble())
+				atomicState.remoteHeatSetSourceStr = "Remote Sensor Override"
 			}
 		} else { atomicState?.heatOverride = null }
 
@@ -2198,23 +2214,34 @@ def getRemSenHeatSetTemp(curMode=null, isEco=false, useCurrent=true) {
 				def useMotion = atomicState?."motion${mySched}UseMotionSettings"
 				def hvacSettings = atomicState?."sched${mySched}restrictions"
 				heatTemp = !useMotion ? hvacSettings?.htemp : hvacSettings?.mhtemp ?: hvacSettings?.htemp
+				atomicState.remoteHeatSetSourceStr = "Schedule"
 			}
 // ERS if Remsensor is enabled
 			if(isRemSenConfigured()) {
 				if(theMode == "heat" && heatTemp == null /* && isEco */) {
-					if(atomicState?.extTmpLastDesiredTemp) { heatTemp = atomicState?.extTmpLastDesiredTemp }
+					if(atomicState?.extTmpLastDesiredTemp) {
+						heatTemp = atomicState?.extTmpLastDesiredTemp.toDouble()
+						atomicState.remoteHeatSetSourceStr = "Last Desired Temp"
+					}
 				}
 				if(theMode == "auto" && heatTemp == null /* && isEco */) {
-					if(atomicState?.extTmpLastDesiredHTemp) { heatTemp = atomicState?.extTmpLastDesiredHTemp }
+					if(atomicState?.extTmpLastDesiredHTemp) {
+						heatTemp = atomicState?.extTmpLastDesiredHTemp.toDouble()
+						atomicState.remoteHeatSetSourceStr = "Last Desired HTemp"
+				 	}
 				}
 
 				if(heatTemp == null && remSenDayHeatTemp) {
 					heatTemp = remSenDayHeatTemp.toDouble()
+					atomicState.remoteHeatSetSourceStr = "RemSen Day Heat Temp"
 				}
 
 				if(heatTemp == null) {
 					def desiredHeatTemp = getGlobalDesiredHeatTemp()
-					if(desiredHeatTemp) { heatTemp = desiredHeatTemp.toDouble() }
+					if(desiredHeatTemp) {
+						heatTemp = desiredHeatTemp.toDouble()
+						atomicState.remoteHeatSetSourceStr = "Global Desired Heat Temp"
+					}
 				}
 
 				if(heatTemp) {
@@ -2226,6 +2253,7 @@ def getRemSenHeatSetTemp(curMode=null, isEco=false, useCurrent=true) {
 
 	if(heatTemp == null && useCurrent) {
 		heatTemp = schMotTstat ? getTstatSetpoint(schMotTstat, "heat") : heatTemp
+		atomicState.remoteHeatSetSourceStr = "Thermostat"
 	}
 	return heatTemp
 }
@@ -2389,10 +2417,33 @@ def fanCtrlCheck() {
 		def execTime = now()
 		//atomicState?.lastEvalDt = getDtNow()
 
-		def reqHeatSetPoint = getRemSenHeatSetTemp()
-		reqHeatSetPoint = reqHeatSetPoint ?: 0
+		def curMode = schMotTstat ? schMotTstat?.currentnestThermostatMode?.toString() : null
+		def modeEco = (curMode in ["eco"]) ? true : false
 
-		def reqCoolSetPoint = getRemSenCoolSetTemp()
+		def reqHeatSetPoint
+		def reqCoolSetPoint
+		if(!modeEco) {
+			reqHeatSetPoint = getRemSenHeatSetTemp(curMode)
+			reqCoolSetPoint = getRemSenCoolSetTemp(curMode)
+		}
+
+		def lastMode = schMotTstat ? schMotTstat?.currentpreviousthermostatMode?.toString() : null
+		if(!lastMode && modeEco && isRemSenConfigured()) {
+			if( /* !lastMode && */ atomicState?.extTmpTstatOffRequested && atomicState?.extTmplastMode) {
+				lastMode = atomicState?.extTmplastMode
+			}
+		}
+		if(lastMode) {
+			if(!reqHeatSetpoint) { reqHeatSetPoint = getRemSenHeatSetTemp(lastMode, modeEco, false) }
+			if(!reqCoolSetpoint) { reqCoolSetPoint = getRemSenCoolSetTemp(lastMode, modeEco, false) }
+			if(isRemSenConfigured()) {
+				if(!reqHeatSetPoint) { reqHeatSetPoint = atomicState?.extTmpLastDesiredHTemp }
+				if(!reqCoolSetPoint) { reqCoolSetPoint = atomicState?.extTmpLastDesiredCTemp }
+			}
+			LogAction("fanCtrlCheck: Using lastMode: ${lastMode} | extTmpTstatOffRequested: ${atomicState?.extTmpTstatOffRequested} | curMode: ${curMode}", "debug", true)
+		}
+
+		reqHeatSetPoint = reqHeatSetPoint ?: 0
 		reqCoolSetPoint = reqCoolSetPoint ?: 0
 
 		def curTstatTemp = getRemoteSenTemp().toDouble()
@@ -2401,13 +2452,13 @@ def fanCtrlCheck() {
 		def curSetPoint = t0 ? t0.toDouble() : 0
 
 		def tempDiff = Math.abs(curSetPoint - curTstatTemp)
-		LogAction("fanCtrlCheck: Desired Temps - Heat: ${reqHeatSetPoint} | Cool: ${reqCoolSetPoint}", "info", false)
-		LogAction("fanCtrlCheck: Current Thermostat Sensor Temp: ${curTstatTemp} Temp Difference: (${tempDiff})", "info", false)
+		LogAction("fanCtrlCheck: Desired Temps - Heat: ${reqHeatSetPoint} | Cool: ${reqCoolSetPoint}", "info", true)
+		LogAction("fanCtrlCheck: Current Thermostat Sensor Temp: ${curTstatTemp} Temp Difference: (${tempDiff})", "info", true)
 
 		if(isFanCircConfigured()) {
 			def adjust = (getTemperatureScale() == "C") ? 0.5 : 1.0
 			def threshold = !fanCtrlTempDiffDegrees ? adjust : fanCtrlTempDiffDegrees.toDouble()
-			def hvacMode = schMotTstat ? schMotTstat?.currentnestThermostatMode.toString() : null
+			def hvacMode = curMode
 /*
 			def curTstatFanMode = schMotTstat?.currentThermostatFanMode.toString()
 			def fanOn = (curTstatFanMode == "on" || curTstatFanMode == "circulate") ? true : false
@@ -2625,7 +2676,7 @@ def circulateFanControl(operType, Double curSenTemp, Double reqSetpointTemp, Dou
 	def fanOn = (curTstatFanMode == "on" || curTstatFanMode == "circulate") ? true : false
 
 	def returnToAuto = can_Circ ? false : true
-	if(hvacMode in ["off", "eco"]) { returnToAuto = true }
+	if(hvacMode in ["off", "eco"]) { returnToAuto = true }  // This overrides ECO...
 
 	// Track approximate fan on / off times
 	if( !fanOn && atomicState?.lastfanCtrlRunDt > atomicState?.lastfanCtrlFanOffDt ) {
@@ -2716,6 +2767,7 @@ def circulateFanControl(operType, Double curSenTemp, Double reqSetpointTemp, Dou
 def getCirculateFanTempOk(Double senTemp, Double reqsetTemp, Double threshold, Boolean fanOn, operType) {
 
 	def turnOn = false
+	def tempScaleStr = "${tUnitStr()}"
 /*
 	def adjust = (getTemperatureScale() == "C") ? 0.5 : 1.0
 	if(threshold > (adjust * 2.0)) {
@@ -2730,8 +2782,8 @@ def getCirculateFanTempOk(Double senTemp, Double reqsetTemp, Double threshold, B
 	LogAction(" ├ adjust: ${adjust}}${tUnitStr()}", "debug", false)
 */
 
-	LogAction(" ├ operType: (${strCapitalize(operType)}) | Temp Threshold: ${threshold}${tUnitStr()} |  FanAlreadyOn: (${strCapitalize(fanOn)})", "debug", false)
-	LogAction(" ├ Sensor Temp: ${senTemp}${tUnitStr()} | Requested Setpoint Temp: ${reqsetTemp}${tUnitStr()}", "debug", false)
+	LogAction(" ├ operType: (${strCapitalize(operType)}) | Temp Threshold: ${threshold}${tempScaleStr} |  FanAlreadyOn: (${strCapitalize(fanOn)})", "debug", false)
+	LogAction(" ├ Sensor Temp: ${senTemp}${tempScaleStr} | Requested Setpoint Temp: ${reqsetTemp}${tempScaleStr}", "debug", false)
 
 	if(!reqsetTemp) {
 		LogAction("getCirculateFanTempOk: Bad reqsetTemp ${reqsetTemp}", "warn", false)
@@ -2755,8 +2807,8 @@ def getCirculateFanTempOk(Double senTemp, Double reqsetTemp, Double threshold, B
 //		if((senTemp < offtemp) && (senTemp >= (ontemp + adjust))) { turnOn = true }
 	}
 
-//	LogAction(" ├ onTemp: ${ontemp} | offTemp: ${offtemp}}${tUnitStr()}", "debug", false)
-	LogAction(" ├ offTemp: ${offtemp}${tUnitStr()} | Temp Threshold: ${threshold}${tUnitStr()}", "debug", false)
+//	LogAction(" ├ onTemp: ${ontemp} | offTemp: ${offtemp}}${tempScaleStr}", "debug", false)
+	LogAction(" ├ offTemp: ${offtemp}${tempScaleStr} | Temp Threshold: ${threshold}${tempScaleStr}", "debug", false)
 	LogAction(" ┌ Final Result: (${strCapitalize(turnOn)})", "debug", false)
 //	LogAction("getCirculateFanTempOk: ", "debug", false)
 
@@ -3015,12 +3067,14 @@ def getExtConditions( doEvent = false ) {
 			def cur = parent?.getWData()
 			def weather = parent.getWeatherDevice()
 
-			if(cur && weather && cur?.current_observation) {
-				atomicState?.curWeather = cur?.current_observation
-				atomicState?.curWeatherTemp_f = Math.round(cur?.current_observation?.temp_f) as Integer
-				atomicState?.curWeatherTemp_c = Math.round(cur?.current_observation?.temp_c.toDouble())
-				atomicState?.curWeatherLoc = cur?.current_observation?.display_location?.full.toString()  // This is not available as attribute in dth
-				//atomicState?.curWeatherHum = cur?.current_observation?.relative_humidity?.toString().replaceAll("\\%", "")
+			if(cur && weather /* && cur?.current_observation */) {
+				atomicState?.curWeather = cur
+				atomicState?.curWeatherTemp_f = getTemperatureScale() == "C" ? Math.round(cur?.temperature * 9/5 + 32) : Math.round(cur?.temperature) as Integer
+				atomicState?.curWeatherTemp_c = getTemperatureScale() == "C" ? Math.round(cur?.temperature.toDouble()) : Math.round( ((cur?.temperature - 32) * 5/9) as Double)
+
+				def curLoc = parent?.getWLocation()
+				atomicState?.curWeatherLoc = curLoc?.location?.city + curLoc?.location?.adminDistrict  // This is not available as attribute in dth
+				//atomicState?.curWeatherHum = cur?.relativeHumidity
 
 				def dp = 0.0
 				if(weather) {  // Dewpoint is calculated in dth
@@ -4108,7 +4162,7 @@ def nestModePresPage() {
 				input (name: "nModeCamOffHome", type: "bool", title: "Turn Off Nest Cams when Home?", required: false, defaultValue: false, submitOnChange: true, image: getAppImg("camera_gray_icon.png"))
 				if(settings?.nModeCamOffHome || settings?.nModeCamOnAway) {
 					paragraph title: "Optional" , "You can choose which cameras are changed when Home/Away.  If you don't select any devices all will be changed."
-					input (name: "nModeCamsSel", type: "device.nestCamera", title: "Select your Nest Cams?", required: false, multiple: true, submitOnChange: true, image: getAppImg("camera_blue_icon.png"))
+					input (name: "nModeCamsSel", type: "capability.soundSensor", title: "Select your Nest Cams?", required: false, multiple: true, submitOnChange: true, image: getAppImg("camera_blue_icon.png"))
 				}
 			}
 		}
@@ -6170,7 +6224,7 @@ def getScheduleDesc(num = null) {
 			str += isRemSen && schData?.sen0 ?	"${isRemSen || isRestrict ? "\n │\n" : "\n"} └ Alternate Remote Sensor:" : ""
 			//str += isRemSen && schData?.sen0 ?	"\n      ├ Temp Sensors: (${schData?.sen0.size()})" : ""
 			settings["${sLbl}remSensor"]?.each { t ->
-				str += "\n      ├ ${t?.label}: ${(t?.label?.toString()?.length() > 10) ? "\n      │ └ " : ""}(${getDeviceTemp(t)}${tUnitStr()})"
+				str += "\n      ├ ${t?.label}: ${(t?.label?.toString()?.length() > 10) ? "\n      │ └ " : ""}(${getDeviceTemp(t)}${tempScaleStr})"
 			}
 			str += isRemSen && schData?.sen0 ?	"\n      └ Temp${(settings["${sLbl}remSensor"]?.size() > 1) ? " (avg):" : ":"} (${getDeviceTempAvg(settings["${sLbl}remSensor"])}${tempScaleStr})" : ""
 			str += isRemSen && schData?.thres ?	"\n  └ Threshold: (${settings["${sLbl}remSenThreshold"]}${tempScaleStr})" : ""
@@ -6595,14 +6649,17 @@ def setNotificationPage(params) {
 					input "${pName}SendToAskAlexaQueue", "bool", title: "Send to Ask Alexa Message Queue?", required: false, defaultValue: (settings?."${pName}AllowSpeechNotif" ? false : true), submitOnChange: true,
 							image: askAlexaImgUrl()
 					input "${pName}SpeechMediaPlayer", "capability.musicPlayer", title: "Select Media Player(s)", hideWhenEmpty: true, multiple: true, required: false, submitOnChange: true, image: getAppImg("media_player.png")
+					input "${pName}EchoDevices", "device.echoSpeaksDevice", title: "Select Alexa Devices(s)", hideWhenEmpty: true, multiple: true, required: false, submitOnChange: true, image: getAppImg('echo_speaks.png')
 					input "${pName}SpeechDevices", "capability.speechSynthesis", title: "Select Speech Synthesizer(s)", hideWhenEmpty: true, multiple: true, required: false, submitOnChange: true, image: getAppImg("speech2_icon.png")
-					if(settings["${pName}SpeechMediaPlayer"]) {
+					if(settings["${pName}SpeechMediaPlayer"] || settings["${pName}EchoDevices"]) {
 						input "${pName}SpeechVolumeLevel", "number", title: "Default Volume Level?", required: false, defaultValue: 30, range: "0::100", submitOnChange: true, image: getAppImg("volume_icon.png")
-						input "${pName}SpeechAllowResume", "bool", title: "Can Resume Playing Media?", required: false, defaultValue: false, submitOnChange: true, image: getAppImg("resume_icon.png")
+						if(settings["${pName}SpeechMediaPlayer"]) {
+							input "${pName}SpeechAllowResume", "bool", title: "Can Resume Playing Media?", required: false, defaultValue: false, submitOnChange: true, image: getAppImg("resume_icon.png")
+						}
 					}
 					def desc = ""
 					if(pName in ["conWat", "extTmp", "leakWat"]) {
-						if( (settings["${pName}SpeechMediaPlayer"] || settings["${pName}SpeechDevices"] || settings["${pName}SendToAskAlexaQueue"]) ) {
+						if( (settings["${pName}SpeechMediaPlayer"] || settings["${pName}SpeechDevices"] || settings["${pName}EchoDevices"] || settings["${pName}SendToAskAlexaQueue"]) ) {
 							switch(pName) {
 								case "conWat":
 									desc = "Contact Close"
@@ -6759,7 +6816,9 @@ String getNotifSchedDesc(pName) {
 	return (notifDesc != "") ? "${notifDesc}" : null
 }
 
-def getOk2Notify(pName) { return (settings?."${pName}NotificationsOn" && daysOk(settings?."${pName}quietDays") && notificationTimeOk(pName) && modesOk(settings?."${pName}quietModes")) }
+def getOk2Notify(pName) { 
+	return ((settings["${pName}NotificationsOn"] == true) && (daysOk(settings?."${pName}quietDays") == true) && (notificationTimeOk(pName) == true) && (modesOk(settings?."${pName}quietModes") == true))
+}
 
 def notificationTimeOk(pName) {
 	def strtTime = null
@@ -6853,13 +6912,20 @@ def getVoiceNotifConfigDesc(pName) {
 	if(settings?."${pName}NotificationsOn" && settings["${pName}AllowSpeechNotif"]) {
 		def speaks = settings?."${pName}SpeechDevices"
 		def medias = settings?."${pName}SpeechMediaPlayer"
+		def echos = settings["${pName}EchoDevices"]
 		str += settings["${pName}SendToAskAlexaQueue"] ? "\n• Send to Ask Alexa: (True)" : ""
 		str += speaks ? "\n • Speech Devices:" : ""
 		if(speaks) {
 			def cnt = 1
 			speaks?.each { str += it ? "\n ${cnt < speaks.size() ? "├" : "└"} $it" : ""; cnt = cnt+1; }
 		}
-		str += medias ? "${speaks ? "\n\n" : "\n"} • Media Players:" : ""
+		str += echos ? "\n • Alexa Devices:" : ""
+		if(echos) {
+			def cnt = 1
+			echos?.each { str += it ? "\n ${cnt < echos.size() ? "├" : "└"} $it" : ""; cnt = cnt+1; }
+			str += (echos && settings?."${pName}SpeechVolumeLevel") ? "\n└ Volume: (${settings?."${pName}SpeechVolumeLevel"})" : ""
+		}
+		str += medias ? "${(speaks || echos) ? "\n\n" : "\n"} • Media Players:" : ""
 		if(medias) {
 			def cnt = 1
 			medias?.sort { it?.displayName }?.each { str += it ? "\n│${cnt < medias.size() ? "├" : "└"} $it" : ""; cnt = cnt+1; }
@@ -7060,7 +7126,7 @@ def sendNofificationMsg(msg, msgType, pName, pushoverMap=null, sms=null, push=nu
 	LogAction("sendNofificationMsg($msg, $msgType, $pName, $pushoverMap, $sms, $push)", "trace", false)
 	if(settings?."${pName}NotificationsOn" == true) {
 		if(settings?."${pName}UseMgrNotif" == false) {
-			def ok2Notify = setting?."${getAutoType()}UseParentNotifRestrictions" != false ? getOk2Notify(getAutoType()) : true //parent?.getOk2Notify()
+			def ok2Notify = setting?."${pName}UseParentNotifRestrictions" != false ? getOk2Notify(pName) : true //parent?.getOk2Notify()
 			if(!ok2Notify) {
 				LogAction("sendMsg: Message Skipped During Quiet Time ($msg)", "info", true)
 			} else {
@@ -7106,26 +7172,17 @@ private buildPushMessage(List devices,Map msgData,timeStamp=false){if(!devices||
 *************************************************************************************************/
 def sendEventPushNotifications(message, type, pName) {
 	LogTrace("sendEventPushNotifications($message, $type, $pName)")
-/*
-	if(settings?."${pName}NotificationsOn" == true) {
-		if(settings?."${pName}UseMgrNotif" == false) {
-			//TODO: Build out Pushover priorities 
-			sendNofificationMsg(message, type, pName, null, settings?."${pName}NotifPhones", settings?."${pName}UsePush")
-		} else {
-*/
-			sendNofificationMsg(message, type, pName)
-//		}
-//	}
+	sendNofificationMsg(message, type, pName)
 }
 
 def sendEventVoiceNotifications(vMsg, pName, msgId, rmAAMsg=false, rmMsgId) {
 	def allowNotif = settings?."${pName}NotificationsOn" ? true : false
 	def allowSpeech = allowNotif && settings?."${pName}AllowSpeechNotif" ? true : false
-	def ok2Notify = setting?."${getAutoType()}UseParentNotifRestrictions" != false ? getOk2Notify(getAutoType()) : parent?.getOk2Notify()
+	def ok2Notify = setting?."${pName}UseParentNotifRestrictions" != false ? getOk2Notify(pName) : parent?.getOk2Notify()
 
-	LogAction("sendEventVoiceNotifications($vMsg, $pName) ok2Notify: $ok2Notify", "trace", false)
+	LogAction("sendEventVoiceNotifications($vMsg, $pName) | ok2Notify: $ok2Notify", "trace", false)
 	if(allowNotif && allowSpeech) {
-		if(ok2Notify && (settings["${pName}SpeechDevices"] || settings["${pName}SpeechMediaPlayer"])) {
+		if(ok2Notify && (settings["${pName}SpeechDevices"] || settings["${pName}SpeechMediaPlayer"] || settings["${pName}EchoDevices"])) {
 			sendTTS(vMsg, pName)
 		}
 		if(settings["${pName}SendToAskAlexaQueue"]) {		// we queue to Alexa regardless of quiet times
@@ -7166,7 +7223,7 @@ def removeAskAlexaQueueMsg(msgId, queue=null) {
 def scheduleAlarmOn(autoType) {
 	LogAction("scheduleAlarmOn: autoType: $autoType a1DelayVal: ${getAlert1DelayVal(autoType)}", "debug", true)
 	def timeVal = getAlert1DelayVal(autoType).toInteger()
-	def ok2Notify = setting?."${getAutoType()}UseParentNotifRestrictions" != false ? getOk2Notify(getAutoType()) : parent?.getOk2Notify()
+	def ok2Notify = setting?."${autoType}UseParentNotifRestrictions" != false ? getOk2Notify(autoType) : parent?.getOk2Notify()
 
 	LogAction("scheduleAlarmOn timeVal: $timeVal ok2Notify: $ok2Notify", "info", true)
 	if(canSchedule() && ok2Notify) {
@@ -7301,9 +7358,10 @@ void sendTTS(txt, pName) {
 		def msg = txt?.toString()?.replaceAll("\\[|\\]|\\(|\\)|\\'|\\_", "")
 		def spks = settings?."${pName}SpeechDevices"
 		def meds = settings?."${pName}SpeechMediaPlayer"
+		def echos = settings?."${pName}EchoDevices"
 		def res = settings?."${pName}SpeechAllowResume"
 		def vol = settings?."${pName}SpeechVolumeLevel"
-		LogAction("sendTTS msg: $msg | speaks: $spks | medias: $meds | resume: $res | volume: $vol", "debug", true)
+		LogAction("sendTTS msg: $msg | speaks: $spks | medias: $meds | echos: $echos| resume: $res | volume: $vol", "debug", false)
 		if(settings?."${pName}AllowSpeechNotif") {
 			if(spks) {
 				spks*.speak(msg)
@@ -7324,6 +7382,9 @@ void sendTTS(txt, pName) {
 						it?.playText(msg)
 					}
 				}
+			}
+			if(echos) {
+				echos*.setVolumeAndSpeak(settings?."${pName}SpeechVolumeLevel", msg as String)
 			}
 		}
 	} catch (ex) {
@@ -7484,12 +7545,12 @@ def getSafetyTempsOk(tstat) {
 }
 
 def getGlobalDesiredHeatTemp() {
-	def t0 = parent?.settings?.locDesiredHeatTemp?.toDouble()
+	Double t0 = parent?.settings?.locDesiredHeatTemp?.toDouble()
 	return t0 ?: null
 }
 
 def getGlobalDesiredCoolTemp() {
-	def t0 = parent?.settings?.locDesiredCoolTemp?.toDouble()
+	Double t0 = parent?.settings?.locDesiredCoolTemp?.toDouble()
 	return t0 ?: null
 }
 
@@ -7638,10 +7699,11 @@ def setTstatAutoTemps(tstat, coolSetpoint, heatSetpoint, pName, mir=null) {
 	def reqHeat
 	def curCoolSetpoint
 	def curHeatSetpoint
+	def tempScaleStr = "${tUnitStr()}"
 
 	if(tstat) {
 		hvacMode = tstat?.currentnestThermostatMode.toString()
-		LogAction("setTstatAutoTemps: [tstat: ${tstat?.displayName} | Mode: ${hvacMode} | coolSetpoint: ${coolSetpoint}${tUnitStr()} | heatSetpoint: ${heatSetpoint}${tUnitStr()}]", "info", true)
+		LogAction("setTstatAutoTemps: [tstat: ${tstat?.displayName} | Mode: ${hvacMode} | coolSetpoint: ${coolSetpoint}${tempScaleStr} | heatSetpoint: ${heatSetpoint}${tempScaleStr}]", "info", true)
 
 		retVal = true
 		setStr = ""
@@ -7687,15 +7749,15 @@ def setTstatAutoTemps(tstat, coolSetpoint, heatSetpoint, pName, mir=null) {
 	}
 	if(retVal) {
 		if(heatFirst && setHeat) {
-			setStr += "heatSetpoint: (${reqHeat}${tUnitStr()}) "
+			setStr += "heatSetpoint: (${reqHeat}${tempScaleStr}) "
 			if(reqHeat != curHeatSetpoint) {
 				tstat?.setHeatingSetpoint(reqHeat)
-				storeLastAction("Set ${tstat} Heat Setpoint ${reqHeat}${tUnitStr()}", getDtNow(), pName, tstat)
+				storeLastAction("Set ${tstat} Heat Setpoint ${reqHeat}${tempScaleStr}", getDtNow(), pName, tstat)
 				if(mir) { mir*.setHeatingSetpoint(reqHeat) }
 			}
 		}
 		if(setCool) {
-			setStr += "coolSetpoint: (${reqCool}${tUnitStr()}) "
+			setStr += "coolSetpoint: (${reqCool}${tempScaleStr}) "
 			if(reqCool != curCoolSetpoint) {
 				tstat?.setCoolingSetpoint(reqCool)
 				storeLastAction("Set ${tstat} Cool Setpoint ${reqCool}", getDtNow(), pName, tstat)
@@ -7703,10 +7765,10 @@ def setTstatAutoTemps(tstat, coolSetpoint, heatSetpoint, pName, mir=null) {
 			}
 		}
 		if(!heatFirst && setHeat) {
-			setStr += "heatSetpoint: (${reqHeat}${tUnitStr()})"
+			setStr += "heatSetpoint: (${reqHeat}${tempScaleStr})"
 			if(reqHeat != curHeatSetpoint) {
 				tstat?.setHeatingSetpoint(reqHeat)
-				storeLastAction("Set ${tstat} Heat Setpoint ${reqHeat}${tUnitStr()}", getDtNow(), pName, tstat)
+				storeLastAction("Set ${tstat} Heat Setpoint ${reqHeat}${tempScaleStr}", getDtNow(), pName, tstat)
 				if(mir) { mir*.setHeatingSetpoint(reqHeat) }
 			}
 		}
